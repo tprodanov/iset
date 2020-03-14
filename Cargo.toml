@@ -1,0 +1,23 @@
+[package]
+name = "iset"
+version = "0.0.1"
+authors = ["Timofey Prodanov <timofey.prodanov@gmail.com>"]
+edition = "2018"
+description = "Store intervals and search for all intervals intersecting a query."
+repository = "https://gitlab.com/tprodanov/iset"
+readme = "README.md"
+license = "MIT"
+keywords = ["interval", "intervals", "interval_tree", "interval_set", "map"]
+documentation = "https://docs.rs/iset"
+exclude = [".cargo_vcs_info.json", ".gitignore"]
+
+[profile.test]
+opt-level = 3
+
+[profile.dev]
+opt-level = 3
+incremental = false
+
+[dependencies]
+
+[dev-dependencies]

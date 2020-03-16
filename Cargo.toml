@@ -19,5 +19,7 @@ opt-level = 3
 incremental = false
 
 [dependencies]
+bit-vec = "0.6"
 
 [dev-dependencies]
+rand = "0.7"

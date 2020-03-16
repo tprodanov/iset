@@ -1,6 +1,10 @@
+extern crate bit_vec;
+
 use std::ops::{Range, RangeBounds, Bound};
-use std::cmp::{max, Ordering};
-use std::mem::drop;
+use std::cmp::{min, max, Ordering};
+use std::fmt::{self, Debug, Display, Formatter};
+use std::io::{self, Write};
+use bit_vec::BitVec;
 
 #[derive(Clone, Copy, Debug)]
 struct CheckedOrd<T: PartialOrd>(T);
@@ -48,6 +52,12 @@ struct Interval<T: PartialOrd + Copy> {
     end: CheckedOrd<T>,
 }
 
+impl<T: PartialOrd + Copy + Display> Display for Interval<T> {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        write!(f, "{}..{}", self.start.0, self.end.0)
+    }
+}
+
 impl<T: PartialOrd + Copy> Interval<T> {
     fn new(range: &Range<T>) -> Self {
         Interval {
@@ -81,29 +91,59 @@ impl<T: PartialOrd + Copy> Interval<T> {
             Bound::Unbounded => true,
         })
     }
+
+    fn extend(&mut self, other: &Interval<T>) {
+        self.start = min(self.start, other.start);
+        self.end = max(self.end, other.end);
+    }
+}
+
+fn check_ordered<T: PartialOrd, R: RangeBounds<T>>(range: &R) -> bool {
+    match (range.start_bound(), range.end_bound()) {
+        (_, Bound::Unbounded) | (Bound::Unbounded, _) => true,
+        (Bound::Included(a), Bound::Included(b)) => a <= b,
+        (Bound::Included(a), Bound::Excluded(b))
+        | (Bound::Excluded(a), Bound::Included(b))
+        | (Bound::Excluded(a), Bound::Excluded(b)) => a < b,
+    }
 }
 
 const UNDEFINED: usize = std::usize::MAX;
 
+#[derive(Debug)]
 struct Node<T: PartialOrd + Copy, V> {
     interval: Interval<T>,
+    subtree_interval: Interval<T>,
     value: V,
     left: usize,
     right: usize,
     parent: usize,
-    biggest_end: CheckedOrd<T>,
 }
 
 impl<T: PartialOrd + Copy, V> Node<T, V> {
     fn new(range: Range<T>, value: V) -> Self {
         Node {
             interval: Interval::new(&range),
+            subtree_interval: Interval::new(&range),
             value,
             left: UNDEFINED,
             right: UNDEFINED,
             parent: UNDEFINED,
-            biggest_end: CheckedOrd(range.end),
         }
+    }
+}
+
+impl<T: PartialOrd + Copy + Display, V: Display> Node<T, V> {
+    fn write_dot<W: Write>(&self, index: usize, mut writer: W) -> io::Result<()> {
+        writeln!(writer, "    {} [label=\"i={}\\n{}: {}\\n{}\"]",
+            index, index, self.interval, self.value, self.subtree_interval)?;
+        if self.left != UNDEFINED {
+            writeln!(writer, "    {} -> {} [label=\"L\"]", index, self.left)?;
+        }
+        if self.right != UNDEFINED {
+            writeln!(writer, "    {} -> {} [label=\"R\"]", index, self.right)?;
+        }
+        Ok(())
     }
 }
 
@@ -120,44 +160,47 @@ impl<T: PartialOrd + Copy, V> IntervalMap<T, V> {
         }
     }
 
-    fn update_biggest_end(&mut self, node_ind: usize) {
-        let mut node = &self.nodes[node_ind];
-        let mut biggest_end = node.interval.end;
-        if node.left != UNDEFINED {
-            biggest_end = max(biggest_end, self.nodes[node.left].biggest_end);
+    fn update_subtree_interval(&mut self, index: usize) {
+        let left = self.nodes[index].left;
+        let right = self.nodes[index].right;
+
+        let mut new_interval = self.nodes[index].interval.clone();
+        if left != UNDEFINED {
+            new_interval.extend(&self.nodes[left].subtree_interval);
         }
-        if node.right != UNDEFINED {
-            biggest_end = max(biggest_end, self.nodes[node.right].biggest_end);
+        if right != UNDEFINED {
+            new_interval.extend(&self.nodes[right].subtree_interval);
         }
-        drop(node);
-        self.nodes[node_ind].biggest_end = biggest_end;
+        self.nodes[index].subtree_interval = new_interval;
     }
 
     pub fn insert(&mut self, interval: Range<T>, value: V) {
-        let i = self.nodes.len();
+        assert!(interval.start < interval.end, "Cannot insert an empty interval");
+        let j = self.nodes.len();
         let mut new_node = Node::new(interval, value);
         if self.root == UNDEFINED {
             self.root = 0;
+            self.nodes.push(new_node);
             return;
         }
 
-        let mut j = self.root;
+        let mut i = self.root;
         loop {
-            let mut child = if self.nodes[i].interval <= self.nodes[j].interval {
-                &mut self.nodes[j].left
+            self.nodes[i].subtree_interval.extend(&new_node.interval);
+            let child = if new_node.interval <= self.nodes[i].interval {
+                &mut self.nodes[i].left
             } else {
-                &mut self.nodes[j].right
+                &mut self.nodes[i].right
             };
             if *child == UNDEFINED {
-                *child = i;
-                new_node.parent = j;
+                *child = j;
+                new_node.parent = i;
                 break;
             } else {
-                j = *child;
+                i = *child;
             }
         }
         self.nodes.push(new_node);
-        self.update_biggest_end(i);
     }
 
     fn change_index(&mut self, old: usize, new: usize) {
@@ -204,76 +247,157 @@ impl<T: PartialOrd + Copy, V> IntervalMap<T, V> {
     // }
 
     pub fn iter<'a, R: RangeBounds<T>>(&'a self, range: R) -> Iter<'a, T, V, R> {
-        let mut iter = Iter {
+        assert!(check_ordered(&range), "Cannot search with an empty query");
+        Iter {
             index: self.root,
-            range: range,
+            range,
             nodes: &self.nodes,
-        };
-        iter.move_to_next();
-        iter
+            stack: ActionStack::new(),
+        }
     }
+}
+
+impl<T: PartialOrd + Copy + Display, V: Display> IntervalMap<T, V> {
+    pub fn write_dot<W: Write>(&self, mut writer: W) -> io::Result<()> {
+        writeln!(writer, "digraph {{")?;
+        for i in 0..self.nodes.len() {
+            self.nodes[i].write_dot(i, &mut writer)?;
+        }
+        writeln!(writer, "}}")
+    }
+}
+
+fn should_go_left<T: PartialOrd + Copy, V>(nodes: &[Node<T, V>], index: usize, start_bound: Bound<&T>) -> bool {
+    if nodes[index].left == UNDEFINED {
+        return false;
+    }
+    let left_end = nodes[nodes[index].left].subtree_interval.end;
+    match start_bound {
+        Bound::Included(value) | Bound::Excluded(value) => left_end >= *value,
+        Bound::Unbounded => true,
+    }
+}
+
+fn should_go_right<T: PartialOrd + Copy, V>(nodes: &[Node<T, V>], index: usize, end_bound: Bound<&T>) -> bool {
+    if nodes[index].right == UNDEFINED {
+        return false;
+    }
+    let right_start = nodes[nodes[index].right].subtree_interval.start;
+    match end_bound {
+        Bound::Included(value) => right_start <= *value,
+        Bound::Excluded(value) => right_start < *value,
+        Bound::Unbounded => true,
+    }
+}
+
+#[derive(Debug)]
+struct ActionStack(BitVec);
+
+impl ActionStack {
+    fn new() -> Self {
+        Self(BitVec::from_elem(2, false))
+    }
+
+    #[inline]
+    fn push(& mut self) {
+        self.0.push(false);
+        self.0.push(false);
+    }
+
+    // 00 - just entered
+    // 01 - was to the left
+    // 10 - returned
+    // 11 - was to the right
+
+    #[inline]
+    fn can_go_left(&self) -> bool {
+        !self.0[self.0.len() - 2] && !self.0[self.0.len() - 1]
+    }
+
+    #[inline]
+    fn go_left(&mut self) {
+        self.0.set(self.0.len() - 1, true);
+    }
+
+    #[inline]
+    fn can_match(&self) -> bool {
+        !self.0[self.0.len() - 2]
+    }
+
+    #[inline]
+    fn make_match(&mut self) {
+        self.0.set(self.0.len() - 2, true);
+        self.0.set(self.0.len() - 1, false);
+    }
+
+    #[inline]
+    fn can_go_right(&self) -> bool {
+        !self.0[self.0.len() - 1]
+    }
+
+    #[inline]
+    fn go_right(&mut self) {
+        self.0.set(self.0.len() - 2, true);
+        self.0.set(self.0.len() - 1, true);
+    }
+
+    #[inline]
+    fn pop(&mut self) {
+        self.0.pop();
+        self.0.pop();
+    }
+}
+
+fn move_to_next<T, V, R>(nodes: &[Node<T, V>], mut index: usize, range: &R, stack: &mut ActionStack) -> usize
+where T: PartialOrd + Copy,
+      R: RangeBounds<T>,
+{
+    while index != UNDEFINED {
+        if stack.can_go_left() {
+            while should_go_left(nodes, index, range.start_bound()) {
+                stack.go_left();
+                stack.push();
+                index = nodes[index].left;
+            }
+            stack.go_left();
+        }
+
+        if stack.can_match() {
+            stack.make_match();
+            if nodes[index].interval.intersects_range(range) {
+                return index;
+            }
+        }
+
+        if stack.can_go_right() && should_go_right(nodes, index, range.end_bound()) {
+            stack.go_right();
+            stack.push();
+            index = nodes[index].right;
+        } else {
+            stack.pop();
+            index = nodes[index].parent;
+        }
+    }
+    index
 }
 
 pub struct Iter<'a, T: PartialOrd + Copy, V, R: RangeBounds<T>> {
     index: usize,
     range: R,
     nodes: &'a [Node<T, V>],
-}
-
-impl<'a, T: PartialOrd + Copy, V, R: RangeBounds<T>> Iter<'a, T, V, R> {
-    fn should_go_left(&self) -> bool {
-        if self.nodes[self.index].left == UNDEFINED {
-            return false;
-        }
-        let left_end = self.nodes[self.nodes[self.index].left].biggest_end;
-        match self.range.start_bound() {
-            Bound::Included(value) | Bound::Excluded(value) => left_end >= *value,
-            Bound::Unbounded => true,
-        }
-    }
-
-    fn should_go_right(&self) -> bool {
-        if self.nodes[self.index].right == UNDEFINED {
-            return false;
-        }
-        let right_start = self.nodes[self.nodes[self.index].right].interval.start;
-        match self.range.end_bound() {
-            Bound::Included(value) => right_start <= *value,
-            Bound::Excluded(value) => right_start < *value,
-            Bound::Unbounded => true,
-        }
-    }
-
-    fn move_to_next(&mut self) {
-        let mut was_left = false;
-        while self.index == UNDEFINED {
-            while !was_left && self.should_go_left() {
-                self.index = self.nodes[self.index].left;
-            }
-            if self.nodes[self.index].interval.intersects_range(&self.range) {
-                return;
-            }
-            if self.should_go_right() {
-                was_left = false;
-                self.index = self.nodes[self.index].right;
-            } else {
-                was_left = true;
-                self.index = self.nodes[self.index].parent;
-            }
-        }
-    }
+    stack: ActionStack,
 }
 
 impl<'a, T: PartialOrd + Copy, V, R: RangeBounds<T>> Iterator for Iter<'a, T, V, R> {
     type Item = (Range<T>, &'a V);
 
     fn next(&mut self) -> Option<Self::Item> {
+        self.index = move_to_next(self.nodes, self.index, &self.range, &mut self.stack);
         if self.index == UNDEFINED {
-            return None;
+            None
+        } else {
+            Some((self.nodes[self.index].interval.to_range(), &self.nodes[self.index].value))
         }
-        let res = (self.nodes[self.index].interval.to_range(), &self.nodes[self.index].value);
-        self.move_to_next();
-        Some(res)
     }
 }
 

@@ -1,6 +1,7 @@
 extern crate iset;
 extern crate rand;
 
+use std::cmp::{min, max};
 use std::ops::{Range, RangeBounds, Bound};
 use std::fmt::{Debug, Write};
 use std::fs::File;
@@ -79,24 +80,55 @@ where T: PartialOrd + Copy + Debug,
     res
 }
 
-fn generate_int(range: Range<u32>) -> impl (FnMut() -> u32) {
+fn generate_int(range: Range<i32>) -> impl (FnMut() -> i32) {
     let mut rng = thread_rng();
     move || rng.gen_range(range.start, range.end)
 }
 
+fn change_int_pair(difference: i32) -> impl (FnMut(&Range<i32>) -> Range<i32>) {
+    let mut rng = thread_rng();
+    move |ref range| {
+        let a = rng.gen_range(range.start - difference, min(range.start + difference + 1, range.end));
+        let b = rng.gen_range(max(range.end - difference, a + 1), range.end + difference + 1);
+        a..b
+    }
+}
+
 fn search_rand<T, F>(naive: &mut NaiveIntervalMap<T, u32>, tree: &mut iset::IntervalMap<T, u32>, n_searches: u32,
-        mut generator: F, history: &mut String)
+        mut generator: F, history: &str)
 where T: PartialOrd + Copy + Debug,
 F: FnMut() -> T,
 {
     for _ in 0..n_searches {
         let (a, b) = generate_ordered_pair(&mut generator);
         let range = a..b;
-        writeln!(history, "search({:?})", range).unwrap();
-        let vec_a = save_iter(history, "    naive: ", naive.iter(range.clone()));
-        let vec_b = save_iter(history, "    tree:  ", tree.iter(range.clone()));
+        let mut query = format!("search({:?})", range);
+        let vec_a = save_iter(&mut query, "    naive: ", naive.iter(range.clone()));
+        let vec_b = save_iter(&mut query, "    tree:  ", tree.iter(range.clone()));
         if vec_a != vec_b {
             println!("{}", history);
+            println!();
+            println!("{}", query);
+            assert!(false);
+        }
+    }
+}
+
+fn search_changed<T, F>(naive: &mut NaiveIntervalMap<T, u32>, tree: &mut iset::IntervalMap<T, u32>, n_searches: u32,
+        mut changer: F, history: &str)
+where T: PartialOrd + Copy + Debug,
+      F: FnMut(&Range<T>) -> Range<T>,
+{
+    let mut rng = thread_rng();
+    for _ in 0..n_searches {
+        let range = changer(&naive.nodes[rng.gen_range(0, naive.nodes.len())].0);
+        let mut query = format!("search({:?})", range);
+        let vec_a = save_iter(&mut query, "    naive: ", naive.iter(range.clone()));
+        let vec_b = save_iter(&mut query, "    tree:  ", tree.iter(range.clone()));
+        if vec_a != vec_b {
+            println!("{}", history);
+            println!();
+            println!("{}", query);
             assert!(false);
         }
     }
@@ -106,8 +138,20 @@ F: FnMut() -> T,
 fn test_inserts() {
     let mut naive = NaiveIntervalMap::new();
     let mut tree = iset::IntervalMap::new();
-    let mut history = modify_maps(&mut naive, &mut tree, 100, generate_int(0..100));
+    let history = modify_maps(&mut naive, &mut tree, 100, generate_int(0..100));
     let f = File::create("tests/data/out.dot").unwrap();
     tree.write_dot(f).unwrap();
-    search_rand(&mut naive, &mut tree, 10, generate_int(0..100), &mut history);
+    search_rand(&mut naive, &mut tree, 100, generate_int(0..100), &history);
+    search_changed(&mut naive, &mut tree, 10000, change_int_pair(1), &history);
+}
+
+#[test]
+fn test_inserts2() {
+    let mut naive = NaiveIntervalMap::new();
+    let mut tree = iset::IntervalMap::new();
+    let history = modify_maps(&mut naive, &mut tree, 1000, generate_int(0..1000));
+    let f = File::create("tests/data/out.dot").unwrap();
+    tree.write_dot(f).unwrap();
+    search_rand(&mut naive, &mut tree, 1000, generate_int(-2..1002), &history);
+    search_changed(&mut naive, &mut tree, 10000, change_int_pair(2), &history);
 }

@@ -118,6 +118,7 @@ struct Node<T: PartialOrd + Copy, V> {
     left: usize,
     right: usize,
     parent: usize,
+    red_color: bool,
 }
 
 impl<T: PartialOrd + Copy, V> Node<T, V> {
@@ -129,7 +130,28 @@ impl<T: PartialOrd + Copy, V> Node<T, V> {
             left: UNDEFINED,
             right: UNDEFINED,
             parent: UNDEFINED,
+            red_color: true,
         }
+    }
+
+    #[inline]
+    fn is_red(&self) -> bool {
+        self.red_color
+    }
+
+    #[inline]
+    fn is_black(&self) -> bool {
+        !self.red_color
+    }
+
+    #[inline]
+    fn set_red(&mut self) {
+        self.red_color = true;
+    }
+
+    #[inline]
+    fn set_black(&mut self) {
+        self.red_color = false;
     }
 }
 
@@ -174,33 +196,149 @@ impl<T: PartialOrd + Copy, V> IntervalMap<T, V> {
         self.nodes[index].subtree_interval = new_interval;
     }
 
+    fn sibling(&self, index: usize) -> usize {
+        let parent = self.nodes[index].parent;
+        if parent == UNDEFINED {
+            UNDEFINED
+        } else if self.nodes[parent].left == index {
+            self.nodes[parent].right
+        } else {
+            self.nodes[parent].left
+        }
+    }
+
+    fn rotate_left(&mut self, index: usize) {
+        let prev_parent = self.nodes[index].parent;
+        let prev_right = self.nodes[index].right;
+        debug_assert!(prev_right != UNDEFINED);
+
+        let new_right = self.nodes[prev_right].left;
+        self.nodes[index].right = new_right;
+        if new_right != UNDEFINED {
+            self.nodes[new_right].parent = index;
+        }
+        self.update_subtree_interval(index);
+
+        self.nodes[prev_right].left = index;
+        self.nodes[index].parent = prev_right;
+        self.update_subtree_interval(prev_right);
+
+        if prev_parent != UNDEFINED {
+            if self.nodes[prev_parent].left == index {
+                self.nodes[prev_parent].left = prev_right;
+            } else {
+                self.nodes[prev_parent].right = prev_right;
+            }
+            self.nodes[prev_right].parent = prev_parent;
+        }
+        self.update_subtree_interval(prev_parent);
+    }
+
+    fn rotate_right(&mut self, index: usize) {
+        let prev_parent = self.nodes[index].parent;
+        let prev_left = self.nodes[index].left;
+        debug_assert!(prev_left != UNDEFINED);
+
+        let new_left = self.nodes[prev_left].right;
+        self.nodes[index].left = new_left;
+        if new_left != UNDEFINED {
+            self.nodes[new_left].parent = index;
+        }
+        self.update_subtree_interval(index);
+
+        self.nodes[prev_left].right = index;
+        self.nodes[index].parent = prev_left;
+        self.update_subtree_interval(prev_left);
+
+        if prev_parent != UNDEFINED {
+            if self.nodes[prev_parent].right == index {
+                self.nodes[prev_parent].right = prev_left;
+            } else {
+                self.nodes[prev_parent].left = prev_left;
+            }
+            self.nodes[prev_left].parent = prev_parent;
+        }
+        self.update_subtree_interval(prev_parent);
+    }
+
+    fn insert_repair(&mut self, mut index: usize) {
+        loop {
+            debug_assert!(self.nodes[index].is_red());
+            if index == self.root {
+                self.nodes[index].set_black();
+                return;
+            }
+
+            // parent should be defined
+            let parent = self.nodes[index].parent
+            if self.nodes[parent].is_black() {
+                return;
+            }
+
+            // parent is red
+            // grandparent should be defined
+            let grandparent = self.nodes[parent].parent;
+            let uncle = self.sibling(parent);
+            debug_assert!(uncle != UNDEFINED);
+
+            if self.nodes[uncle].is_red() {
+                self.nodes[parent].set_black();
+                self.nodes[uncle].set_black();
+                self.nodes[grandparent].set_red();
+                index = grandparent;
+                continue;
+            }
+
+            if index == self.nodes[parent].right && parent == self.nodes[grandparent].left {
+                self.rotate_left(parent);
+                index = self.nodes[index].left;
+            } else if index == self.nodes[parent].left && parent == self.nodes[grandparent].right {
+                self.rotate_right(parent);
+                index = self.nodes[index].right;
+            }
+
+            let parent = self.nodes[index].parent;
+            let grandparent = self.nodes[parent].parent;
+            if index == self.nodes[parent].left {
+                self.rotate_left();
+            } else {
+                self.rotate_right();
+            }
+            self.nodes[parent].set_black();
+            self.nodes[grandparent].set_red();
+            return;
+        }
+    }
+
     pub fn insert(&mut self, interval: Range<T>, value: V) {
         assert!(interval.start < interval.end, "Cannot insert an empty interval");
-        let j = self.nodes.len();
+        let new_ind = self.nodes.len();
         let mut new_node = Node::new(interval, value);
         if self.root == UNDEFINED {
             self.root = 0;
+            new_node.set_black();
             self.nodes.push(new_node);
             return;
         }
 
-        let mut i = self.root;
+        let mut current = self.root;
         loop {
-            self.nodes[i].subtree_interval.extend(&new_node.interval);
+            self.nodes[current].subtree_interval.extend(&new_node.interval);
             let child = if new_node.interval <= self.nodes[i].interval {
-                &mut self.nodes[i].left
+                &mut self.nodes[current].left
             } else {
-                &mut self.nodes[i].right
+                &mut self.nodes[current].right
             };
             if *child == UNDEFINED {
-                *child = j;
-                new_node.parent = i;
+                *child = new_ind;
+                new_node.parent = current;
                 break;
             } else {
-                i = *child;
+                current = *child;
             }
         }
         self.nodes.push(new_node);
+        self.insert_repair(new_ind);
     }
 
     fn change_index(&mut self, old: usize, new: usize) {

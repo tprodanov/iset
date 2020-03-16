@@ -270,7 +270,7 @@ impl<T: PartialOrd + Copy, V> IntervalMap<T, V> {
             }
 
             // parent should be defined
-            let parent = self.nodes[index].parent
+            let parent = self.nodes[index].parent;
             if self.nodes[parent].is_black() {
                 return;
             }
@@ -300,9 +300,9 @@ impl<T: PartialOrd + Copy, V> IntervalMap<T, V> {
             let parent = self.nodes[index].parent;
             let grandparent = self.nodes[parent].parent;
             if index == self.nodes[parent].left {
-                self.rotate_left();
+                self.rotate_left(grandparent);
             } else {
-                self.rotate_right();
+                self.rotate_right(grandparent);
             }
             self.nodes[parent].set_black();
             self.nodes[grandparent].set_red();
@@ -324,7 +324,7 @@ impl<T: PartialOrd + Copy, V> IntervalMap<T, V> {
         let mut current = self.root;
         loop {
             self.nodes[current].subtree_interval.extend(&new_node.interval);
-            let child = if new_node.interval <= self.nodes[i].interval {
+            let child = if new_node.interval <= self.nodes[current].interval {
                 &mut self.nodes[current].left
             } else {
                 &mut self.nodes[current].right
@@ -392,6 +392,55 @@ impl<T: PartialOrd + Copy, V> IntervalMap<T, V> {
             nodes: &self.nodes,
             stack: ActionStack::new(),
         }
+    }
+
+
+    /// Returns distance to leaves (only black nodes).
+    fn check_recursive(&self, index: usize, upper_interval: &mut Interval<T>) -> u32 {
+        let node = &self.nodes[index];
+        upper_interval.extend(&node.interval);
+        let mut down_interval = node.interval.clone();
+        let left = node.left;
+        let right = node.right;
+
+        let left_depth = if left != UNDEFINED {
+            if node.is_red() {
+                assert!(self.nodes[left].is_black(), "Red node {} has a red child {}", index, left);
+            }
+            Some(self.check_recursive(left, &mut down_interval))
+        } else {
+            None
+        };
+        let right_depth = if right != UNDEFINED {
+            if node.is_red() {
+                assert!(self.nodes[right].is_black(), "Red node {} has a red child {}", index, right);
+            }
+            Some(self.check_recursive(right, &mut down_interval))
+        } else {
+            None
+        };
+        assert!(down_interval == node.subtree_interval, "Interval != subtree interval for node {}", index);
+
+        match (left_depth, right_depth) {
+            (Some(x), Some(y)) => assert!(x == y, "Node {} has different depths to leaves: {} != {}", index, x, y),
+            _ => {},
+        }
+        let depth = left_depth.or(right_depth).unwrap_or(0);
+        if node.is_black() {
+            depth + 1
+        } else {
+            depth
+        }
+    }
+
+    pub(crate) fn check(&self) {
+        if self.root == UNDEFINED {
+            return;
+        }
+        let node = &self.nodes[self.root];
+        let mut interval = node.interval.clone();
+        self.check_recursive(self.root, &mut interval);
+        assert!(interval == node.subtree_interval, "Interval != subtree interval for node {}", self.root);
     }
 }
 

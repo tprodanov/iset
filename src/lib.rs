@@ -7,6 +7,7 @@ mod tests;
 use std::ops::{Range, RangeFull, RangeBounds, Bound};
 use std::cmp::{min, max, Ordering};
 use std::fmt::{self, Debug, Display, Formatter};
+use std::io::{self, Write};
 
 pub use iter::*;
 
@@ -141,7 +142,6 @@ impl<T: PartialOrd + Copy, V> Node<T, V> {
     }
 }
 
-#[cfg(test)]
 impl<T: PartialOrd + Copy + Display, V: Display> Node<T, V> {
     fn write_dot<W: Write>(&self, index: usize, mut writer: W) -> io::Result<()> {
         writeln!(writer, "    {} [label=\"i={}\\n{}: {}\\n{}\", fillcolor={}, style=filled]",
@@ -168,6 +168,17 @@ impl<T: PartialOrd + Copy, V> IntervalMap<T, V> {
             nodes: Vec::new(),
             root: UNDEFINED,
         }
+    }
+
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self {
+            nodes: Vec::with_capacity(capacity),
+            root: UNDEFINED,
+        }
+    }
+
+    pub fn shrink_to_fit(&mut self) {
+        self.nodes.shrink_to_fit();
     }
 
     fn update_subtree_interval(&mut self, index: usize) {
@@ -415,12 +426,51 @@ impl<T: PartialOrd + Copy, V> std::iter::FromIterator<(Range<T>, V)> for Interva
 }
 
 impl<T: PartialOrd + Copy + Display, V: Display> IntervalMap<T, V> {
-    #[cfg(test)]
-    pub(crate) fn write_dot<W: Write>(&self, mut writer: W) -> io::Result<()> {
+    pub fn write_dot<W: Write>(&self, mut writer: W) -> io::Result<()> {
         writeln!(writer, "digraph {{")?;
         for i in 0..self.nodes.len() {
             self.nodes[i].write_dot(i, &mut writer)?;
         }
         writeln!(writer, "}}")
+    }
+}
+
+pub struct IntervalSet<T: PartialOrd + Copy> {
+    inner: IntervalMap<T, ()>,
+}
+
+impl<T: PartialOrd + Copy> IntervalSet<T> {
+    pub fn new() -> Self {
+        Self {
+            inner: IntervalMap::new(),
+        }
+    }
+
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self {
+            inner: IntervalMap::with_capacity(capacity),
+        }
+    }
+
+    #[inline]
+    pub fn shrink_to_fit(&mut self) {
+        self.inner.shrink_to_fit()
+    }
+
+    pub fn insert(&mut self, range: Range<T>) {
+        self.inner.insert(range, ());
+    }
+
+    pub fn iter<'a, R: RangeBounds<T>>(&'a self, range: R) -> Intervals<'a, T, (), R> {
+        self.inner.intervals(range)
+    }
+}
+
+impl<T: PartialOrd + Copy> std::iter::IntoIterator for IntervalSet<T> {
+    type IntoIter = IntoIterSet<T>;
+    type Item = Range<T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        IntoIterSet::new(self.inner)
     }
 }

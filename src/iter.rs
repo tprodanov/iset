@@ -1,5 +1,5 @@
 
-use std::ops::{Range, RangeBounds, Bound};
+use std::ops::{Range, RangeFull, RangeBounds, Bound};
 use std::iter::FusedIterator;
 use std::mem;
 use bit_vec::BitVec;
@@ -213,3 +213,25 @@ impl<T: PartialOrd + Copy, V, R: RangeBounds<T>> Iterator for IntoIter<T, V, R> 
 }
 
 impl<T: PartialOrd + Copy, V, R: RangeBounds<T>> FusedIterator for IntoIter<T, V, R> { }
+
+pub struct IntoIterSet<T: PartialOrd + Copy> {
+    inner: IntoIter<T, (), RangeFull>,
+}
+
+impl<T: PartialOrd + Copy> IntoIterSet<T> {
+    pub(crate) fn new(tree: IntervalMap<T, ()>) -> Self {
+        Self {
+            inner: IntoIter::new(tree, ..),
+        }
+    }
+}
+
+impl<T: PartialOrd + Copy> Iterator for IntoIterSet<T> {
+    type Item = Range<T>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.inner.next().map(|(range, _)| range)
+    }
+}
+
+impl<T: PartialOrd + Copy> FusedIterator for IntoIterSet<T> { }

@@ -1,7 +1,6 @@
 extern crate rand;
 
-use std::cmp::{min, max};
-use std::ops::{Range, RangeBounds, Bound};
+use std::ops::{self, Range, RangeBounds, Bound};
 use std::fmt::{Debug, Write};
 use std::fs::File;
 use rand::prelude::*;
@@ -106,13 +105,13 @@ impl<T: PartialOrd + Copy, V> NaiveIntervalMap<T, V> {
     }
 }
 
-fn generate_ordered_pair<T: PartialOrd + Copy, F: FnMut() -> T>(generator: &mut F) -> (T, T) {
+fn generate_ordered_pair<T: PartialOrd + Copy, F: FnMut() -> T>(generator: &mut F, forbid_eq: bool) -> (T, T) {
     let a = generator();
     let mut b = generator();
-    while a == b {
+    while forbid_eq && a == b {
         b = generator();
     }
-    if a < b {
+    if a <= b {
         (a, b)
     } else {
         (b, a)
@@ -126,7 +125,7 @@ where T: PartialOrd + Copy + Debug,
 {
     let mut history = String::new();
     for i in 0..n_inserts {
-        let (a, b) = generate_ordered_pair(&mut generator);
+        let (a, b) = generate_ordered_pair(&mut generator, true);
         let range = a..b;
         println!("tree.insert({:?}, {});", range, i);
         writeln!(history, "insert({:?})", range).unwrap();
@@ -151,43 +150,54 @@ fn generate_int(range: Range<i32>) -> impl (FnMut() -> i32) {
     move || rng.gen_range(range.start, range.end)
 }
 
-fn change_int_pair(difference: i32) -> impl (FnMut(&Range<i32>) -> Range<i32>) {
+fn generate_float(range: Range<f64>) -> impl (FnMut() -> f64) {
     let mut rng = thread_rng();
-    move |ref range| {
-        let a = rng.gen_range(range.start - difference, min(range.start + difference + 1, range.end));
-        let b = rng.gen_range(max(range.end - difference, a + 1), range.end + difference + 1);
+    move || rng.gen_range(range.start, range.end)
+}
+
+fn generate_range<T: PartialOrd + Copy + Debug, F: FnMut() -> T>(mut generator: F)
+        -> impl (FnMut() -> ops::Range<T>) {
+    move || {
+        let (a, b) = generate_ordered_pair(&mut generator, true);
         a..b
     }
 }
 
-fn search_rand<T, F>(naive: &mut NaiveIntervalMap<T, u32>, tree: &mut IntervalMap<T, u32>, n_searches: u32,
-        mut generator: F, history: &str)
-where T: PartialOrd + Copy + Debug,
-F: FnMut() -> T,
-{
-    for _ in 0..n_searches {
-        let (a, b) = generate_ordered_pair(&mut generator);
-        let range = a..b;
-        let mut query = format!("search({:?})", range);
-        let vec_a = save_iter(&mut query, "    naive: ", naive.iter(range.clone()));
-        let vec_b = save_iter(&mut query, "    tree:  ", tree.iter(range.clone()));
-        if vec_a != vec_b {
-            println!("{}", history);
-            println!();
-            println!("{}", query);
-            assert!(false);
-        }
+fn generate_range_from<T: PartialOrd + Copy + Debug, F: FnMut() -> T>(mut generator: F)
+        -> impl (FnMut() -> ops::RangeFrom<T>) {
+    move || generator()..
+}
+
+fn generate_range_full() -> ops::RangeFull {
+    ..
+}
+
+fn generate_range_incl<T: PartialOrd + Copy + Debug, F: FnMut() -> T>(mut generator: F)
+        -> impl (FnMut() -> ops::RangeInclusive<T>) {
+    move || {
+        let (a, b) = generate_ordered_pair(&mut generator, false);
+        a..=b
     }
 }
 
-fn search_changed<T, F>(naive: &mut NaiveIntervalMap<T, u32>, tree: &mut IntervalMap<T, u32>, n_searches: u32,
-        mut changer: F, history: &str)
+fn generate_range_to<T: PartialOrd + Copy + Debug, F: FnMut() -> T>(mut generator: F)
+        -> impl (FnMut() -> ops::RangeTo<T>) {
+    move || ..generator()
+}
+
+fn generate_range_to_incl<T: PartialOrd + Copy + Debug, F: FnMut() -> T>(mut generator: F)
+        -> impl (FnMut() -> ops::RangeToInclusive<T>) {
+    move || ..=generator()
+}
+
+fn search_rand<T, R, F>(naive: &mut NaiveIntervalMap<T, u32>, tree: &mut IntervalMap<T, u32>, n_searches: u32,
+        mut range_generator: F, history: &str)
 where T: PartialOrd + Copy + Debug,
-      F: FnMut(&Range<T>) -> Range<T>,
+      R: RangeBounds<T> + Debug + Clone,
+      F: FnMut() -> R,
 {
-    let mut rng = thread_rng();
     for _ in 0..n_searches {
-        let range = changer(&naive.nodes[rng.gen_range(0, naive.nodes.len())].0);
+        let range = range_generator();
         let mut query = format!("search({:?})", range);
         let vec_a = save_iter(&mut query, "    naive: ", naive.iter(range.clone()));
         let vec_b = save_iter(&mut query, "    tree:  ", tree.iter(range.clone()));
@@ -201,15 +211,39 @@ where T: PartialOrd + Copy + Debug,
 }
 
 #[test]
-fn test_inserts() {
+fn test_int_inserts() {
+    const COUNT: u32 = 1000;
     let mut naive = NaiveIntervalMap::new();
     let mut tree = IntervalMap::new();
-    let history = modify_maps(&mut naive, &mut tree, 100, generate_int(0..100));
+    let history = modify_maps(&mut naive, &mut tree, COUNT, generate_int(0..100));
 
-    let f = File::create("tests/data/out.dot").unwrap();
+    let f = File::create("tests/data/int.dot").unwrap();
     tree.write_dot(f).unwrap();
     check(&tree);
 
-    search_rand(&mut naive, &mut tree, 100, generate_int(0..100), &history);
-    search_changed(&mut naive, &mut tree, 100, change_int_pair(1), &history);
+    search_rand(&mut naive, &mut tree, COUNT, generate_range(generate_int(0..100)), &history);
+    search_rand(&mut naive, &mut tree, COUNT, generate_range_from(generate_int(0..100)), &history);
+    search_rand(&mut naive, &mut tree, 1, generate_range_full, &history);
+    search_rand(&mut naive, &mut tree, COUNT, generate_range_incl(generate_int(0..100)), &history);
+    search_rand(&mut naive, &mut tree, COUNT, generate_range_to(generate_int(0..100)), &history);
+    search_rand(&mut naive, &mut tree, COUNT, generate_range_to_incl(generate_int(0..100)), &history);
+}
+
+#[test]
+fn test_float_inserts() {
+    const COUNT: u32 = 1000;
+    let mut naive = NaiveIntervalMap::new();
+    let mut tree = IntervalMap::new();
+    let history = modify_maps(&mut naive, &mut tree, COUNT, generate_float(0.0..1.0));
+
+    let f = File::create("tests/data/float.dot").unwrap();
+    tree.write_dot(f).unwrap();
+    check(&tree);
+
+    search_rand(&mut naive, &mut tree, COUNT, generate_range(generate_float(0.0..1.0)), &history);
+    search_rand(&mut naive, &mut tree, COUNT, generate_range_from(generate_float(0.0..1.0)), &history);
+    search_rand(&mut naive, &mut tree, 1, generate_range_full, &history);
+    search_rand(&mut naive, &mut tree, COUNT, generate_range_incl(generate_float(0.0..1.0)), &history);
+    search_rand(&mut naive, &mut tree, COUNT, generate_range_to(generate_float(0.0..1.0)), &history);
+    search_rand(&mut naive, &mut tree, COUNT, generate_range_to_incl(generate_float(0.0..1.0)), &history);
 }

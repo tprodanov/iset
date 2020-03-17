@@ -4,7 +4,7 @@ pub mod iter;
 #[cfg(test)]
 mod tests;
 
-use std::ops::{Range, RangeFull, RangeBounds, Bound};
+use std::ops::{Range, RangeFull, RangeInclusive, RangeBounds, Bound};
 use std::cmp::{min, max, Ordering};
 use std::fmt::{self, Debug, Display, Formatter};
 use std::io::{self, Write};
@@ -404,6 +404,18 @@ impl<T: PartialOrd + Copy, V> IntervalMap<T, V> {
     pub fn into_iter_within<R: RangeBounds<T>>(self, range: R) -> IntoIter<T, V, R> {
         IntoIter::new(self, range)
     }
+
+    pub fn overlap<'a>(&'a self, position: T) -> Iter<'a, T, V, RangeInclusive<T>> {
+        Iter::new(self, position..=position)
+    }
+
+    pub fn intervals_overlap<'a>(&'a self, position: T) -> Intervals<'a, T, V, RangeInclusive<T>> {
+        Intervals::new(self, position..=position)
+    }
+
+    pub fn values_overlap<'a>(&'a self, position: T) -> Values<'a, T, V, RangeInclusive<T>> {
+        Values::new(self, position..=position)
+    }
 }
 
 impl<T: PartialOrd + Copy, V> std::iter::IntoIterator for IntervalMap<T, V> {
@@ -463,6 +475,10 @@ impl<T: PartialOrd + Copy> IntervalSet<T> {
 
     pub fn iter<'a, R: RangeBounds<T>>(&'a self, range: R) -> Intervals<'a, T, (), R> {
         self.inner.intervals(range)
+    }
+
+    pub fn overlap<'a>(&'a self, position: T) -> Intervals<'a, T, (), RangeInclusive<T>> {
+        self.inner.intervals(position..=position)
     }
 }
 

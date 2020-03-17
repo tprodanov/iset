@@ -4,15 +4,15 @@ use std::iter::FusedIterator;
 use std::mem;
 use bit_vec::BitVec;
 
-use super::{IntervalMap, Node, UNDEFINED};
+use super::{IntervalMap, Node, UNDEFINED, check_interval, check_interval_incl};
 
-fn check_ordered<T: PartialOrd, R: RangeBounds<T>>(range: &R) -> bool {
+fn check_ordered<T: PartialOrd, R: RangeBounds<T>>(range: &R) {
     match (range.start_bound(), range.end_bound()) {
-        (_, Bound::Unbounded) | (Bound::Unbounded, _) => true,
-        (Bound::Included(a), Bound::Included(b)) => a <= b,
+        (_, Bound::Unbounded) | (Bound::Unbounded, _) => {},
+        (Bound::Included(a), Bound::Included(b)) => check_interval_incl(a, b),
         (Bound::Included(a), Bound::Excluded(b))
         | (Bound::Excluded(a), Bound::Included(b))
-        | (Bound::Excluded(a), Bound::Excluded(b)) => a < b,
+        | (Bound::Excluded(a), Bound::Excluded(b)) => check_interval(a, b),
     }
 }
 
@@ -144,7 +144,7 @@ macro_rules! map_iterator {
 
         impl<'a, T: PartialOrd + Copy, V, R: RangeBounds<T>> $name<'a, T, V, R> {
             pub(crate) fn new(tree: &'a IntervalMap<T, V>, range: R) -> Self {
-                assert!(check_ordered(&range), "Cannot iterate with an empty query");
+                check_ordered(&range);
                 Self {
                     index: tree.root,
                     range,
@@ -186,7 +186,7 @@ pub struct IntoIter<T: PartialOrd + Copy, V, R: RangeBounds<T>> {
 
 impl<T: PartialOrd + Copy, V, R: RangeBounds<T>> IntoIter<T, V, R> {
     pub(crate) fn new(tree: IntervalMap<T, V>, range: R) -> Self {
-        assert!(check_ordered(&range), "Cannot iterate with an empty query");
+        check_ordered(&range);
         let index = tree.root;
         Self {
             index,

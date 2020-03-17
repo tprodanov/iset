@@ -5,74 +5,33 @@ pub mod iter;
 mod tests;
 
 use std::ops::{Range, RangeFull, RangeInclusive, RangeBounds, Bound};
-use std::cmp::{min, max, Ordering};
 use std::fmt::{self, Debug, Display, Formatter};
 use std::io::{self, Write};
 
 pub use iter::*;
 
-#[derive(Clone, Copy, Debug)]
-struct CheckedOrd<T: PartialOrd>(T);
-
-impl<T: PartialOrd> PartialEq for CheckedOrd<T> {
-    #[inline]
-    fn eq(&self, other: &Self) -> bool {
-        self.0.partial_cmp(&other.0).expect("partial_cmp produced None") == Ordering::Equal
-    }
-}
-
-impl<T: PartialOrd> PartialEq<T> for CheckedOrd<T> {
-    #[inline]
-    fn eq(&self, other: &T) -> bool {
-        self.0.partial_cmp(other).expect("partial_cmp produced None") == Ordering::Equal
-    }
-}
-
-impl<T: PartialOrd> PartialOrd for CheckedOrd<T> {
-    #[inline]
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.0.partial_cmp(&other.0).expect("partial_cmp produced None"))
-    }
-}
-
-impl<T: PartialOrd> PartialOrd<T> for CheckedOrd<T> {
-    #[inline]
-    fn partial_cmp(&self, other: &T) -> Option<Ordering> {
-        Some(self.0.partial_cmp(other).expect("partial_cmp produced None"))
-    }
-}
-
-impl<T: PartialOrd> Eq for CheckedOrd<T> { }
-
-impl<T: PartialOrd> Ord for CheckedOrd<T> {
-    #[inline]
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.0.partial_cmp(&other.0).expect("partial_cmp produced None")
-    }
-}
-
 #[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord)]
 struct Interval<T: PartialOrd + Copy> {
-    start: CheckedOrd<T>,
-    end: CheckedOrd<T>,
+    start: T,
+    end: T,
 }
 
 impl<T: PartialOrd + Copy + Display> Display for Interval<T> {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        write!(f, "{}..{}", self.start.0, self.end.0)
+        write!(f, "{}..{}", self.start, self.end)
     }
 }
 
 impl<T: PartialOrd + Copy> Interval<T> {
     fn new(range: &Range<T>) -> Self {
         Interval {
-            start: CheckedOrd(range.start),
-            end: CheckedOrd(range.end),
+            start: range.start,
+            end: range.end,
         }
     }
 
     fn to_range(&self) -> Range<T> {
-        self.start.0..self.end.0
+        self.start..self.end
     }
 
     fn intersects_range<R: RangeBounds<T>>(&self, range: &R) -> bool {
@@ -90,8 +49,12 @@ impl<T: PartialOrd + Copy> Interval<T> {
     }
 
     fn extend(&mut self, other: &Interval<T>) {
-        self.start = min(self.start, other.start);
-        self.end = max(self.end, other.end);
+        if other.start < self.start {
+            self.start = other.start;
+        }
+        if other.end > self.end {
+            self.end = other.end;
+        }
     }
 }
 
@@ -154,6 +117,26 @@ impl<T: PartialOrd + Copy + Display, V: Display> Node<T, V> {
             writeln!(writer, "    {} -> {} [label=\"R\"]", index, self.right)?;
         }
         Ok(())
+    }
+}
+
+fn check_interval<T: PartialOrd>(start: &T, end: &T) {
+    if start < end {
+        assert!(end > start, "Interval cannot be ordered (`start < end` but not `end > start`)");
+    } else if end <= start {
+        panic!("Interval is empty (`start >= `end`)");
+    } else {
+        panic!("Interval cannot be ordered (`start < end` but not `end <= start`)");
+    }
+}
+
+fn check_interval_incl<T: PartialOrd>(start: &T, end: &T) {
+    if start <= end {
+        assert!(end >= start, "Interval cannot be ordered (`start < end` but not `end > start`)");
+    } else if end < start {
+        panic!("Interval is empty (`start > `end`)");
+    } else {
+        panic!("Interval cannot be ordered (`start <= end` but not `end < start`)");
     }
 }
 
@@ -315,7 +298,7 @@ impl<T: PartialOrd + Copy, V> IntervalMap<T, V> {
     }
 
     pub fn insert(&mut self, interval: Range<T>, value: V) {
-        assert!(interval.start < interval.end, "Cannot insert an empty interval");
+        check_interval(&interval.start, &interval.end);
         let new_ind = self.nodes.len();
         let mut new_node = Node::new(interval, value);
         if self.root == UNDEFINED {

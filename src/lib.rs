@@ -1,5 +1,8 @@
 extern crate bit_vec;
 
+#[cfg(test)]
+mod tests;
+
 use std::ops::{Range, RangeBounds, Bound};
 use std::cmp::{min, max, Ordering};
 use std::fmt::{self, Debug, Display, Formatter};
@@ -155,10 +158,12 @@ impl<T: PartialOrd + Copy, V> Node<T, V> {
     }
 }
 
+#[cfg(test)]
 impl<T: PartialOrd + Copy + Display, V: Display> Node<T, V> {
     fn write_dot<W: Write>(&self, index: usize, mut writer: W) -> io::Result<()> {
-        writeln!(writer, "    {} [label=\"i={}\\n{}: {}\\n{}\"]",
-            index, index, self.interval, self.value, self.subtree_interval)?;
+        writeln!(writer, "    {} [label=\"i={}\\n{}: {}\\n{}\", fillcolor={}, style=filled]",
+            index, index, self.interval, self.value, self.subtree_interval,
+            if self.is_red() { "salmon" } else { "grey65" })?;
         if self.left != UNDEFINED {
             writeln!(writer, "    {} -> {} [label=\"L\"]", index, self.left)?;
         }
@@ -230,8 +235,11 @@ impl<T: PartialOrd + Copy, V> IntervalMap<T, V> {
                 self.nodes[prev_parent].right = prev_right;
             }
             self.nodes[prev_right].parent = prev_parent;
+            self.update_subtree_interval(prev_parent);
+        } else {
+            self.root = prev_right;
+            self.nodes[prev_right].parent = UNDEFINED;
         }
-        self.update_subtree_interval(prev_parent);
     }
 
     fn rotate_right(&mut self, index: usize) {
@@ -257,8 +265,11 @@ impl<T: PartialOrd + Copy, V> IntervalMap<T, V> {
                 self.nodes[prev_parent].left = prev_left;
             }
             self.nodes[prev_left].parent = prev_parent;
+            self.update_subtree_interval(prev_parent);
+        } else {
+            self.root = prev_left;
+            self.nodes[prev_left].parent = UNDEFINED;
         }
-        self.update_subtree_interval(prev_parent);
     }
 
     fn insert_repair(&mut self, mut index: usize) {
@@ -279,9 +290,8 @@ impl<T: PartialOrd + Copy, V> IntervalMap<T, V> {
             // grandparent should be defined
             let grandparent = self.nodes[parent].parent;
             let uncle = self.sibling(parent);
-            debug_assert!(uncle != UNDEFINED);
 
-            if self.nodes[uncle].is_red() {
+            if uncle != UNDEFINED && self.nodes[uncle].is_red() {
                 self.nodes[parent].set_black();
                 self.nodes[uncle].set_black();
                 self.nodes[grandparent].set_red();
@@ -300,9 +310,9 @@ impl<T: PartialOrd + Copy, V> IntervalMap<T, V> {
             let parent = self.nodes[index].parent;
             let grandparent = self.nodes[parent].parent;
             if index == self.nodes[parent].left {
-                self.rotate_left(grandparent);
-            } else {
                 self.rotate_right(grandparent);
+            } else {
+                self.rotate_left(grandparent);
             }
             self.nodes[parent].set_black();
             self.nodes[grandparent].set_red();
@@ -393,59 +403,11 @@ impl<T: PartialOrd + Copy, V> IntervalMap<T, V> {
             stack: ActionStack::new(),
         }
     }
-
-
-    /// Returns distance to leaves (only black nodes).
-    fn check_recursive(&self, index: usize, upper_interval: &mut Interval<T>) -> u32 {
-        let node = &self.nodes[index];
-        upper_interval.extend(&node.interval);
-        let mut down_interval = node.interval.clone();
-        let left = node.left;
-        let right = node.right;
-
-        let left_depth = if left != UNDEFINED {
-            if node.is_red() {
-                assert!(self.nodes[left].is_black(), "Red node {} has a red child {}", index, left);
-            }
-            Some(self.check_recursive(left, &mut down_interval))
-        } else {
-            None
-        };
-        let right_depth = if right != UNDEFINED {
-            if node.is_red() {
-                assert!(self.nodes[right].is_black(), "Red node {} has a red child {}", index, right);
-            }
-            Some(self.check_recursive(right, &mut down_interval))
-        } else {
-            None
-        };
-        assert!(down_interval == node.subtree_interval, "Interval != subtree interval for node {}", index);
-
-        match (left_depth, right_depth) {
-            (Some(x), Some(y)) => assert!(x == y, "Node {} has different depths to leaves: {} != {}", index, x, y),
-            _ => {},
-        }
-        let depth = left_depth.or(right_depth).unwrap_or(0);
-        if node.is_black() {
-            depth + 1
-        } else {
-            depth
-        }
-    }
-
-    pub(crate) fn check(&self) {
-        if self.root == UNDEFINED {
-            return;
-        }
-        let node = &self.nodes[self.root];
-        let mut interval = node.interval.clone();
-        self.check_recursive(self.root, &mut interval);
-        assert!(interval == node.subtree_interval, "Interval != subtree interval for node {}", self.root);
-    }
 }
 
 impl<T: PartialOrd + Copy + Display, V: Display> IntervalMap<T, V> {
-    pub fn write_dot<W: Write>(&self, mut writer: W) -> io::Result<()> {
+    #[cfg(test)]
+    pub(crate) fn write_dot<W: Write>(&self, mut writer: W) -> io::Result<()> {
         writeln!(writer, "digraph {{")?;
         for i in 0..self.nodes.len() {
             self.nodes[i].write_dot(i, &mut writer)?;

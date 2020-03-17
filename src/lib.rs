@@ -10,9 +10,10 @@
 // TODO:
 // - smallest, largest
 // - deletion
-// - union
+// - union, split
 // - index newtype
 // - macro new
+// - iter_mut
 
 extern crate bit_vec;
 
@@ -76,7 +77,7 @@ impl<T: PartialOrd + Copy> Interval<T> {
 
 const UNDEFINED: usize = std::usize::MAX;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Node<T: PartialOrd + Copy, V> {
     interval: Interval<T>,
     subtree_interval: Interval<T>,
@@ -195,6 +196,7 @@ fn check_interval_incl<T: PartialOrd>(start: &T, end: &T) {
 /// let map: iset::IntervalMap<_, _> = vec![(10..20, "a"), (0..20, "b")]
 ///                                        .into_iter().collect();
 /// ```
+#[derive(Debug, Clone)]
 pub struct IntervalMap<T: PartialOrd + Copy, V> {
     nodes: Vec<Node<T, V>>,
     root: usize,
@@ -543,6 +545,7 @@ impl<T: PartialOrd + Copy + Display, V: Display> IntervalMap<T, V> {
 /// ```rust
 /// let set: iset::IntervalSet<_> = vec![10..20, 0..20].into_iter().collect();
 /// ```
+#[derive(Debug, Clone)]
 pub struct IntervalSet<T: PartialOrd + Copy> {
     inner: IntervalMap<T, ()>,
 }

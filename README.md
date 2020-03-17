@@ -19,16 +19,16 @@ map.insert(10..20, "c");
 
 // Iterate over (interval, &value) pairs that overlap query (.. here).
 // Output is sorted by intervals.
-assert_eq!(map.iter(..).collect::<Vec<_>>(),
-           vec![(10..20, &"c"), (15..25, &"b"), (20..30, &"a")]);
+let a: Vec<_> = map.iter(..).collect();
+assert_eq!(a, &[(10..20, &"c"), (15..25, &"b"), (20..30, &"a")]);
 
 // Iterate over intervals that overlap query (..20 here). Output is sorted.
-assert_eq!(map.intervals(..20).collect::<Vec<_>>(),
-           vec![10..20, 15..25]);
+let b: Vec<_> = map.intervals(..20).collect();
+assert_eq!(b, &[10..20, 15..25]);
 
 // Iterate over &values that overlap query (20.. here). Output is sorted by intervals.
-assert_eq!(map.values(20..).collect::<Vec<_>>(),
-           vec![&"b", &"a"]);
+let c: Vec<_> = map.values(20..).collect();
+assert_eq!(c, &[&"b", &"a"]);
 ```
 
 You can find more detailed usage [here](https://docs.rs/iset).

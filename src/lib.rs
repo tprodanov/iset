@@ -169,18 +169,16 @@ fn check_interval_incl<T: PartialOrd>(start: &T, end: &T) {
 /// map.insert(15..25, "b");
 /// map.insert(10..20, "c");
 ///
-/// // Iterate over (interval, &value) pairs that overlap query (.. here).
-/// // Output is sorted by intervals.
-/// assert_eq!(map.iter(..).collect::<Vec<_>>(),
-///            vec![(10..20, &"c"), (15..25, &"b"), (20..30, &"a")]);
+/// let a: Vec<_> = map.iter(..).collect();
+/// assert_eq!(a, &[(10..20, &"c"), (15..25, &"b"), (20..30, &"a")]);
 ///
 /// // Iterate over intervals that overlap query (..20 here). Output is sorted.
-/// assert_eq!(map.intervals(..20).collect::<Vec<_>>(),
-///            vec![10..20, 15..25]);
+/// let b: Vec<_> = map.intervals(..20).collect();
+/// assert_eq!(b, &[10..20, 15..25]);
 ///
 /// // Iterate over &values that overlap query (20.. here). Output is sorted by intervals.
-/// assert_eq!(map.values(20..).collect::<Vec<_>>(),
-///            vec![&"b", &"a"]);
+/// let c: Vec<_> = map.values(20..).collect();
+/// assert_eq!(c, &[&"b", &"a"]);
 /// ```
 ///
 /// Insertion takes *O(log N)* and search takes *O(log N + K)* where *K* is the size of the output.
@@ -523,12 +521,12 @@ impl<T: PartialOrd + Copy + Display, V: Display> IntervalMap<T, V> {
 /// set.insert(-1.0..0.2);
 ///
 /// // Iterate over intervals that overlap `0.2..0.8`.
-/// assert_eq!(set.iter(0.2..0.8).collect::<Vec<_>>(),
-///            vec![0.1..0.5, 0.4..1.5]);
+/// let a: Vec<_> = set.iter(0.2..0.8).collect();
+/// assert_eq!(a, &[0.1..0.5, 0.4..1.5]);
 ///
 /// // Iterate over intervals that overlap a point 0.5.
-/// assert_eq!(set.overlap(0.5).collect::<Vec<_>>(),
-///            vec![0.4..1.5]);
+/// let b: Vec<_> = set.overlap(0.5).collect();
+/// assert_eq!(b, &[0.4..1.5]);
 ///
 /// // Will panic:
 /// // set.insert(0.0..std::f32::NAN);
@@ -537,8 +535,8 @@ impl<T: PartialOrd + Copy + Display, V: Display> IntervalMap<T, V> {
 /// // It is still possible to use infinity.
 /// let inf = std::f32::INFINITY;
 /// set.insert(0.0..inf);
-/// assert_eq!(set.overlap(0.5).collect::<Vec<_>>(),
-///            vec![0.0..inf, 0.4..1.5]);
+/// let c: Vec<_> = set.overlap(0.5).collect();
+/// assert_eq!(c, &[0.0..inf, 0.4..1.5]);
 /// ```
 ///
 /// You can also construct `IntervalSet` using `collect()`:

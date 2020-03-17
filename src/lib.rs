@@ -1,11 +1,11 @@
-//! This crates allows to construct map and set where keys are ranges `x..y`.
-//! `IntervalSet` is a newtype over `IntervalMap` with empty values.
-//!
+//! This crates implements map and set with interval keys (ranges `x..y`).
+
 //! `IntervalMap` is implemented using red-black binary tree, where each node contains information
 //! about the smallest start and largest end in its subtree.
 //! The tree takes *O(N)* space and allows insertion in *O(log N)*.
 //! `IntervalMap` allows to search for all entries overlapping a query (interval or a point,
 //! output would be sorted by keys). Search takes *O(log N + K)* where *K* is the size of the output.
+//! `IntervalSet` is a newtype over `IntervalMap` with empty values.
 
 // TODO:
 // - smallest, largest

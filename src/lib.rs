@@ -1,13 +1,14 @@
 extern crate bit_vec;
 
+pub mod iter;
 #[cfg(test)]
 mod tests;
 
-use std::ops::{Range, RangeBounds, Bound};
+use std::ops::{Range, RangeFull, RangeBounds, Bound};
 use std::cmp::{min, max, Ordering};
 use std::fmt::{self, Debug, Display, Formatter};
-use std::io::{self, Write};
-use bit_vec::BitVec;
+
+pub use iter::*;
 
 #[derive(Clone, Copy, Debug)]
 struct CheckedOrd<T: PartialOrd>(T);
@@ -73,14 +74,6 @@ impl<T: PartialOrd + Copy> Interval<T> {
         self.start.0..self.end.0
     }
 
-    fn intersects(&self, other: &Interval<T>) -> bool {
-        self.start < other.end && other.start < self.end
-    }
-
-    fn contains(&self, pos: T) -> bool {
-        self.start <= pos && self.end > pos
-    }
-
     fn intersects_range<R: RangeBounds<T>>(&self, range: &R) -> bool {
         // Each match returns bool
         (match range.end_bound() {
@@ -98,16 +91,6 @@ impl<T: PartialOrd + Copy> Interval<T> {
     fn extend(&mut self, other: &Interval<T>) {
         self.start = min(self.start, other.start);
         self.end = max(self.end, other.end);
-    }
-}
-
-fn check_ordered<T: PartialOrd, R: RangeBounds<T>>(range: &R) -> bool {
-    match (range.start_bound(), range.end_bound()) {
-        (_, Bound::Unbounded) | (Bound::Unbounded, _) => true,
-        (Bound::Included(a), Bound::Included(b)) => a <= b,
-        (Bound::Included(a), Bound::Excluded(b))
-        | (Bound::Excluded(a), Bound::Included(b))
-        | (Bound::Excluded(a), Bound::Excluded(b)) => a < b,
     }
 }
 
@@ -351,6 +334,7 @@ impl<T: PartialOrd + Copy, V> IntervalMap<T, V> {
         self.insert_repair(new_ind);
     }
 
+    #[allow(dead_code)]
     fn change_index(&mut self, old: usize, new: usize) {
         let left = self.nodes[old].left;
         let right = self.nodes[old].right;
@@ -395,13 +379,38 @@ impl<T: PartialOrd + Copy, V> IntervalMap<T, V> {
     // }
 
     pub fn iter<'a, R: RangeBounds<T>>(&'a self, range: R) -> Iter<'a, T, V, R> {
-        assert!(check_ordered(&range), "Cannot search with an empty query");
-        Iter {
-            index: self.root,
-            range,
-            nodes: &self.nodes,
-            stack: ActionStack::new(),
+        Iter::new(self, range)
+    }
+
+    pub fn intervals<'a, R: RangeBounds<T>>(&'a self, range: R) -> Intervals<'a, T, V, R> {
+        Intervals::new(self, range)
+    }
+
+    pub fn values<'a, R: RangeBounds<T>>(&'a self, range: R) -> Values<'a, T, V, R> {
+        Values::new(self, range)
+    }
+
+    pub fn into_iter_within<R: RangeBounds<T>>(self, range: R) -> IntoIter<T, V, R> {
+        IntoIter::new(self, range)
+    }
+}
+
+impl<T: PartialOrd + Copy, V> std::iter::IntoIterator for IntervalMap<T, V> {
+    type IntoIter = IntoIter<T, V, RangeFull>;
+    type Item = (Range<T>, V);
+
+    fn into_iter(self) -> Self::IntoIter {
+        IntoIter::new(self, ..)
+    }
+}
+
+impl<T: PartialOrd + Copy, V> std::iter::FromIterator<(Range<T>, V)> for IntervalMap<T, V> {
+    fn from_iter<I: IntoIterator<Item = (Range<T>, V)>>(iter: I) -> Self {
+        let mut map = IntervalMap::new();
+        for (range, value) in iter {
+            map.insert(range, value);
         }
+        map
     }
 }
 
@@ -415,139 +424,3 @@ impl<T: PartialOrd + Copy + Display, V: Display> IntervalMap<T, V> {
         writeln!(writer, "}}")
     }
 }
-
-fn should_go_left<T: PartialOrd + Copy, V>(nodes: &[Node<T, V>], index: usize, start_bound: Bound<&T>) -> bool {
-    if nodes[index].left == UNDEFINED {
-        return false;
-    }
-    let left_end = nodes[nodes[index].left].subtree_interval.end;
-    match start_bound {
-        Bound::Included(value) | Bound::Excluded(value) => left_end >= *value,
-        Bound::Unbounded => true,
-    }
-}
-
-fn should_go_right<T: PartialOrd + Copy, V>(nodes: &[Node<T, V>], index: usize, end_bound: Bound<&T>) -> bool {
-    if nodes[index].right == UNDEFINED {
-        return false;
-    }
-    let right_start = nodes[nodes[index].right].subtree_interval.start;
-    match end_bound {
-        Bound::Included(value) => right_start <= *value,
-        Bound::Excluded(value) => right_start < *value,
-        Bound::Unbounded => true,
-    }
-}
-
-#[derive(Debug)]
-struct ActionStack(BitVec);
-
-impl ActionStack {
-    fn new() -> Self {
-        Self(BitVec::from_elem(2, false))
-    }
-
-    #[inline]
-    fn push(& mut self) {
-        self.0.push(false);
-        self.0.push(false);
-    }
-
-    // 00 - just entered
-    // 01 - was to the left
-    // 10 - returned
-    // 11 - was to the right
-
-    #[inline]
-    fn can_go_left(&self) -> bool {
-        !self.0[self.0.len() - 2] && !self.0[self.0.len() - 1]
-    }
-
-    #[inline]
-    fn go_left(&mut self) {
-        self.0.set(self.0.len() - 1, true);
-    }
-
-    #[inline]
-    fn can_match(&self) -> bool {
-        !self.0[self.0.len() - 2]
-    }
-
-    #[inline]
-    fn make_match(&mut self) {
-        self.0.set(self.0.len() - 2, true);
-        self.0.set(self.0.len() - 1, false);
-    }
-
-    #[inline]
-    fn can_go_right(&self) -> bool {
-        !self.0[self.0.len() - 1]
-    }
-
-    #[inline]
-    fn go_right(&mut self) {
-        self.0.set(self.0.len() - 2, true);
-        self.0.set(self.0.len() - 1, true);
-    }
-
-    #[inline]
-    fn pop(&mut self) {
-        self.0.pop();
-        self.0.pop();
-    }
-}
-
-fn move_to_next<T, V, R>(nodes: &[Node<T, V>], mut index: usize, range: &R, stack: &mut ActionStack) -> usize
-where T: PartialOrd + Copy,
-      R: RangeBounds<T>,
-{
-    while index != UNDEFINED {
-        if stack.can_go_left() {
-            while should_go_left(nodes, index, range.start_bound()) {
-                stack.go_left();
-                stack.push();
-                index = nodes[index].left;
-            }
-            stack.go_left();
-        }
-
-        if stack.can_match() {
-            stack.make_match();
-            if nodes[index].interval.intersects_range(range) {
-                return index;
-            }
-        }
-
-        if stack.can_go_right() && should_go_right(nodes, index, range.end_bound()) {
-            stack.go_right();
-            stack.push();
-            index = nodes[index].right;
-        } else {
-            stack.pop();
-            index = nodes[index].parent;
-        }
-    }
-    index
-}
-
-pub struct Iter<'a, T: PartialOrd + Copy, V, R: RangeBounds<T>> {
-    index: usize,
-    range: R,
-    nodes: &'a [Node<T, V>],
-    stack: ActionStack,
-}
-
-impl<'a, T: PartialOrd + Copy, V, R: RangeBounds<T>> Iterator for Iter<'a, T, V, R> {
-    type Item = (Range<T>, &'a V);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.index = move_to_next(self.nodes, self.index, &self.range, &mut self.stack);
-        if self.index == UNDEFINED {
-            None
-        } else {
-            Some((self.nodes[self.index].interval.to_range(), &self.nodes[self.index].value))
-        }
-    }
-}
-
-impl<'a, T: PartialOrd + Copy, V, R: RangeBounds<T>> std::iter::FusedIterator for Iter<'a, T, V, R> { }

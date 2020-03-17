@@ -134,7 +134,8 @@ where T: PartialOrd + Copy,
 /// Macro that generates Iterator over IntervalMap.
 /// Arguments: (name of the struct, Iterator::Type, self (because of the macros hygeine), output expression)
 macro_rules! map_iterator {
-    ($name:ident, $item:ty, $sel:ident, $out:expr) => {
+    ($(#[$outer:meta])* struct $name:ident -> $item:ty, $self:ident -> $out:expr) => {
+        $(#[$outer])*
         pub struct $name<'a, T: PartialOrd + Copy, V, R: RangeBounds<T>> {
             index: usize,
             range: R,
@@ -157,9 +158,9 @@ macro_rules! map_iterator {
         impl<'a, T: PartialOrd + Copy, V, R: RangeBounds<T>> Iterator for $name<'a, T, V, R> {
             type Item = $item;
 
-            fn next(&mut $sel) -> Option<Self::Item> {
-                $sel.index = move_to_next($sel.nodes, $sel.index, &$sel.range, &mut $sel.stack);
-                if $sel.index == UNDEFINED {
+            fn next(&mut $self) -> Option<Self::Item> {
+                $self.index = move_to_next($self.nodes, $self.index, &$self.range, &mut $self.stack);
+                if $self.index == UNDEFINED {
                     None
                 } else {
                     Some($out)
@@ -171,12 +172,23 @@ macro_rules! map_iterator {
     }
 }
 
-map_iterator!(Iter, (Range<T>, &'a V), self,
-    (self.nodes[self.index].interval.to_range(), &self.nodes[self.index].value));
-map_iterator!(Intervals, Range<T>, self, self.nodes[self.index].interval.to_range());
-map_iterator!(Values, &'a V, self, &self.nodes[self.index].value);
+map_iterator! {
+    #[doc="Iterator over pairs `(x..y, &value)`."]
+    struct Iter -> (Range<T>, &'a V),
+    self -> (self.nodes[self.index].interval.to_range(), &self.nodes[self.index].value)
+}
+map_iterator! {
+    #[doc="Iterator over intervals `x..y`."]
+    struct Intervals -> Range<T>,
+    self -> self.nodes[self.index].interval.to_range()
+}
+map_iterator! {
+    #[doc="Iterator over pairs `&values`."]
+    struct Values -> &'a V,
+    self -> &self.nodes[self.index].value
+}
 
-
+/// Iterator over pairs `(x..y, value)`. Takes ownership of `IntervalMap`.
 pub struct IntoIter<T: PartialOrd + Copy, V, R: RangeBounds<T>> {
     index: usize,
     range: R,
@@ -214,6 +226,7 @@ impl<T: PartialOrd + Copy, V, R: RangeBounds<T>> Iterator for IntoIter<T, V, R> 
 
 impl<T: PartialOrd + Copy, V, R: RangeBounds<T>> FusedIterator for IntoIter<T, V, R> { }
 
+/// Iterator over pairs `x..y`. Takes ownership of `IntervalSet`.
 pub struct IntoIterSet<T: PartialOrd + Copy> {
     inner: IntoIter<T, (), RangeFull>,
 }

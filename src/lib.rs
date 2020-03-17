@@ -1,3 +1,19 @@
+//! This crates allows to construct map and set where keys are ranges `x..y`.
+//! `IntervalSet` is a newtype over `IntervalMap` with empty values.
+//!
+//! `IntervalMap` is implemented using red-black binary tree, where each node contains information
+//! about the smallest start and largest end in its subtree.
+//! The tree takes *O(N)* space and allows insertion in *O(log N)*.
+//! `IntervalMap` allows to search for all entries overlapping a query (interval or a point,
+//! output would be sorted by keys). Search takes *O(log N + K)* where *K* is the size of the output.
+
+// TODO:
+// - smallest, largest
+// - deletion
+// - union
+// - index newtype
+// - macro new
+
 extern crate bit_vec;
 
 pub mod iter;
@@ -140,12 +156,52 @@ fn check_interval_incl<T: PartialOrd>(start: &T, end: &T) {
     }
 }
 
+/// Map with interval keys (ranges `x..y`).
+///
+/// Range bounds should implement `PartialOrd` and `Copy`, for example any
+/// integer or float types. However, you cannot use values that cannot be used in comparison (such as `NAN`).
+/// There are no restrictions on values.
+///
+/// ```rust
+/// let mut map = iset::IntervalMap::new();
+/// map.insert(20..30, "a");
+/// map.insert(15..25, "b");
+/// map.insert(10..20, "c");
+///
+/// // Iterate over (interval, &value) pairs that overlap query (.. here).
+/// // Output is sorted by intervals.
+/// assert_eq!(map.iter(..).collect::<Vec<_>>(),
+///            vec![(10..20, &"c"), (15..25, &"b"), (20..30, &"a")]);
+///
+/// // Iterate over intervals that overlap query (..20 here). Output is sorted.
+/// assert_eq!(map.intervals(..20).collect::<Vec<_>>(),
+///            vec![10..20, 15..25]);
+///
+/// // Iterate over &values that overlap query (20.. here). Output is sorted by intervals.
+/// assert_eq!(map.values(20..).collect::<Vec<_>>(),
+///            vec![&"b", &"a"]);
+/// ```
+///
+/// Insertion takes *O(log N)* and search takes *O(log N + K)* where *K* is the size of the output.
+///
+/// You can use insert only intervals of type `x..y` but you can search using any query that implements `RangeBounds`,
+/// for example (`x..y`, `x..=y`, `x..`, `..=y` and so on). Functions
+/// [overlap](#method.overlap), [intervals_overlap](#method.intervals_overlap) and
+/// [values_overlap](#method.values_overlap) allow to search for intervals/values that overlap a single point
+/// (same as `x..=x`).
+///
+/// You can also construct `IntervalMap` using `collect()`:
+/// ```rust
+/// let map: iset::IntervalMap<_, _> = vec![(10..20, "a"), (0..20, "b")]
+///                                        .into_iter().collect();
+/// ```
 pub struct IntervalMap<T: PartialOrd + Copy, V> {
     nodes: Vec<Node<T, V>>,
     root: usize,
 }
 
 impl<T: PartialOrd + Copy, V> IntervalMap<T, V> {
+    /// Creates an empty `IntervalMap`.
     pub fn new() -> Self {
         Self {
             nodes: Vec::new(),
@@ -153,6 +209,7 @@ impl<T: PartialOrd + Copy, V> IntervalMap<T, V> {
         }
     }
 
+    /// Creates an empty `IntervalMap` with `capacity`.
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
             nodes: Vec::with_capacity(capacity),
@@ -160,6 +217,7 @@ impl<T: PartialOrd + Copy, V> IntervalMap<T, V> {
         }
     }
 
+    /// Shrinks inner contents.
     pub fn shrink_to_fit(&mut self) {
         self.nodes.shrink_to_fit();
     }
@@ -297,6 +355,9 @@ impl<T: PartialOrd + Copy, V> IntervalMap<T, V> {
         }
     }
 
+    /// Inserts an interval `x..y` and its value. Takes *O(log N)*.
+    ///
+    /// Panics if `interval` contains value that cannot be compared (such as `NAN`).
     pub fn insert(&mut self, interval: Range<T>, value: V) {
         check_interval(&interval.start, &interval.end);
         let new_ind = self.nodes.len();
@@ -372,32 +433,49 @@ impl<T: PartialOrd + Copy, V> IntervalMap<T, V> {
     //     None
     // }
 
-    pub fn iter<'a, R: RangeBounds<T>>(&'a self, range: R) -> Iter<'a, T, V, R> {
-        Iter::new(self, range)
+    /// Iterates over pairs `(x..y, &value)` that overlap the `query`.
+    /// Takes *O(log N + K)* where *K* is the size of the output.
+    /// Output is sorted by intervals, but not by values.
+    ///
+    /// Panics if `interval` contains value that cannot be compared (such as `NAN`).
+    pub fn iter<'a, R: RangeBounds<T>>(&'a self, query: R) -> Iter<'a, T, V, R> {
+        Iter::new(self, query)
     }
 
-    pub fn intervals<'a, R: RangeBounds<T>>(&'a self, range: R) -> Intervals<'a, T, V, R> {
-        Intervals::new(self, range)
+    /// Iterates over intervals `x..y` that overlap the `query`.
+    /// See [iter](#method.iter) for more details.
+    pub fn intervals<'a, R: RangeBounds<T>>(&'a self, query: R) -> Intervals<'a, T, V, R> {
+        Intervals::new(self, query)
     }
 
-    pub fn values<'a, R: RangeBounds<T>>(&'a self, range: R) -> Values<'a, T, V, R> {
-        Values::new(self, range)
+    /// Iterates over `&values` that overlap the `query`.
+    /// See [iter](#method.iter) for more details.
+    pub fn values<'a, R: RangeBounds<T>>(&'a self, query: R) -> Values<'a, T, V, R> {
+        Values::new(self, query)
     }
 
-    pub fn into_iter_within<R: RangeBounds<T>>(self, range: R) -> IntoIter<T, V, R> {
-        IntoIter::new(self, range)
+    /// Consumes `IntervalMap` and iterates over pairs `(x..y, value)` that overlap the `query`.
+    /// See [iter](#method.iter) for more details.
+    pub fn into_iter<R: RangeBounds<T>>(self, query: R) -> IntoIter<T, V, R> {
+        IntoIter::new(self, query)
     }
 
-    pub fn overlap<'a>(&'a self, position: T) -> Iter<'a, T, V, RangeInclusive<T>> {
-        Iter::new(self, position..=position)
+    /// Iterates over pairs `(x..y, &value)` that overlap the `point`.
+    /// See [iter](#method.iter) for more details.
+    pub fn overlap<'a>(&'a self, point: T) -> Iter<'a, T, V, RangeInclusive<T>> {
+        Iter::new(self, point..=point)
     }
 
-    pub fn intervals_overlap<'a>(&'a self, position: T) -> Intervals<'a, T, V, RangeInclusive<T>> {
-        Intervals::new(self, position..=position)
+    /// Iterates over intervals `x..y` that overlap the `point`.
+    /// See [iter](#method.iter) for more details.
+    pub fn intervals_overlap<'a>(&'a self, point: T) -> Intervals<'a, T, V, RangeInclusive<T>> {
+        Intervals::new(self, point..=point)
     }
 
-    pub fn values_overlap<'a>(&'a self, position: T) -> Values<'a, T, V, RangeInclusive<T>> {
-        Values::new(self, position..=position)
+    /// Iterates over &values that overlap the `point`.
+    /// See [iter](#method.iter) for more details.
+    pub fn values_overlap<'a>(&'a self, point: T) -> Values<'a, T, V, RangeInclusive<T>> {
+        Values::new(self, point..=point)
     }
 }
 
@@ -410,6 +488,7 @@ impl<T: PartialOrd + Copy, V> std::iter::IntoIterator for IntervalMap<T, V> {
     }
 }
 
+/// Construct `IntervalMap` from pairs `(x..y, value)`.
 impl<T: PartialOrd + Copy, V> std::iter::FromIterator<(Range<T>, V)> for IntervalMap<T, V> {
     fn from_iter<I: IntoIterator<Item = (Range<T>, V)>>(iter: I) -> Self {
         let mut map = IntervalMap::new();
@@ -421,6 +500,7 @@ impl<T: PartialOrd + Copy, V> std::iter::FromIterator<(Range<T>, V)> for Interva
 }
 
 impl<T: PartialOrd + Copy + Display, V: Display> IntervalMap<T, V> {
+    /// Write dot file to `writer`. `T` and `V` should implement `Display`.
     pub fn write_dot<W: Write>(&self, mut writer: W) -> io::Result<()> {
         writeln!(writer, "digraph {{")?;
         for i in 0..self.nodes.len() {
@@ -430,38 +510,84 @@ impl<T: PartialOrd + Copy + Display, V: Display> IntervalMap<T, V> {
     }
 }
 
+/// Set with interval keys (ranges `x..y`). Newtype over `IntervalMap<T, ()>`.
+///
+/// See [IntervalMap](struct.IntervalMap.html) for more information.
+///
+/// ```rust
+/// let mut set = iset::IntervalSet::new();
+/// set.insert(0.4..1.5);
+/// set.insert(0.1..0.5);
+/// set.insert(-1.0..0.2);
+///
+/// // Iterate over intervals that overlap `0.2..0.8`.
+/// assert_eq!(set.iter(0.2..0.8).collect::<Vec<_>>(),
+///            vec![0.1..0.5, 0.4..1.5]);
+///
+/// // Iterate over intervals that overlap a point 0.5.
+/// assert_eq!(set.overlap(0.5).collect::<Vec<_>>(),
+///            vec![0.4..1.5]);
+///
+/// // Will panic:
+/// // set.insert(0.0..std::f32::NAN);
+/// // set.overlap(std::f32::NAN);
+///
+/// // It is still possible to use infinity.
+/// let inf = std::f32::INFINITY;
+/// set.insert(0.0..inf);
+/// assert_eq!(set.overlap(0.5).collect::<Vec<_>>(),
+///            vec![0.0..inf, 0.4..1.5]);
+/// ```
+///
+/// You can also construct `IntervalSet` using `collect()`:
+/// ```rust
+/// let set: iset::IntervalSet<_> = vec![10..20, 0..20].into_iter().collect();
+/// ```
 pub struct IntervalSet<T: PartialOrd + Copy> {
     inner: IntervalMap<T, ()>,
 }
 
 impl<T: PartialOrd + Copy> IntervalSet<T> {
+    /// Creates an empty `IntervalSet`.
     pub fn new() -> Self {
         Self {
             inner: IntervalMap::new(),
         }
     }
 
+    /// Creates an empty `IntervalSet` with `capacity`.
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
             inner: IntervalMap::with_capacity(capacity),
         }
     }
 
+    /// Shrinks inner contents.
     #[inline]
     pub fn shrink_to_fit(&mut self) {
         self.inner.shrink_to_fit()
     }
 
-    pub fn insert(&mut self, range: Range<T>) {
-        self.inner.insert(range, ());
+    /// Inserts an interval `x..y`. Takes *O(log N)*.
+    ///
+    /// Panics if `interval` contains value that cannot be compared (such as `NAN`).
+    pub fn insert(&mut self, interval: Range<T>) {
+        self.inner.insert(interval, ());
     }
 
-    pub fn iter<'a, R: RangeBounds<T>>(&'a self, range: R) -> Intervals<'a, T, (), R> {
-        self.inner.intervals(range)
+    /// Iterates over intervals `x..y` that overlap the `query`.
+    /// Takes *O(log N + K)* where *K* is the size of the output.
+    /// Output is sorted by intervals.
+    ///
+    /// Panics if `interval` contains value that cannot be compared (such as `NAN`).
+    pub fn iter<'a, R: RangeBounds<T>>(&'a self, query: R) -> Intervals<'a, T, (), R> {
+        self.inner.intervals(query)
     }
 
-    pub fn overlap<'a>(&'a self, position: T) -> Intervals<'a, T, (), RangeInclusive<T>> {
-        self.inner.intervals(position..=position)
+    /// Iterates over intervals `x..y` that overlap the `point`. Same as `iter(point..=point)`.
+    /// See [iter](#method.iter) for more details.
+    pub fn overlap<'a>(&'a self, point: T) -> Intervals<'a, T, (), RangeInclusive<T>> {
+        self.inner.intervals(point..=point)
     }
 }
 
@@ -471,5 +597,16 @@ impl<T: PartialOrd + Copy> std::iter::IntoIterator for IntervalSet<T> {
 
     fn into_iter(self) -> Self::IntoIter {
         IntoIterSet::new(self.inner)
+    }
+}
+
+/// Construct `IntervalSet` from ranges `x..y`.
+impl<T: PartialOrd + Copy> std::iter::FromIterator<Range<T>> for IntervalSet<T> {
+    fn from_iter<I: IntoIterator<Item = Range<T>>>(iter: I) -> Self {
+        let mut set = IntervalSet::new();
+        for range in iter {
+            set.insert(range);
+        }
+        set
     }
 }

@@ -1,4 +1,3 @@
-extern crate iset;
 extern crate rand;
 
 use std::cmp::{min, max};
@@ -6,6 +5,72 @@ use std::ops::{Range, RangeBounds, Bound};
 use std::fmt::{Debug, Write};
 use std::fs::File;
 use rand::prelude::*;
+use bit_vec::BitVec;
+
+use super::*;
+
+/// Returns distance to leaves (only black nodes).
+fn check_tree_recursive<T, V>(tree: &IntervalMap<T, V>, index: usize, upper_interval: &mut Interval<T>,
+    visited: &mut BitVec) -> u32
+where T: PartialOrd + Copy {
+    assert!(!visited[index], "The tree contains a cycle: node {} was visited twice", index);
+    visited.set(index, true);
+
+    let node = &tree.nodes[index];
+    let mut down_interval = node.interval.clone();
+    let left = node.left;
+    let right = node.right;
+
+    let left_depth = if left != UNDEFINED {
+        if node.is_red() {
+            assert!(tree.nodes[left].is_black(), "Red node {} has a red child {}", index, left);
+        }
+        Some(check_tree_recursive(tree, left, &mut down_interval, visited))
+    } else {
+        None
+    };
+    let right_depth = if right != UNDEFINED {
+        if node.is_red() {
+            assert!(tree.nodes[right].is_black(), "Red node {} has a red child {}", index, right);
+        }
+        Some(check_tree_recursive(tree, right, &mut down_interval, visited))
+    } else {
+        None
+    };
+    assert!(down_interval == node.subtree_interval, "Interval != subtree interval for node {}", index);
+    upper_interval.extend(&down_interval);
+
+    match (left_depth, right_depth) {
+        (Some(x), Some(y)) => assert!(x == y, "Node {} has different depths to leaves: {} != {}", index, x, y),
+        _ => {},
+    }
+    let depth = left_depth.or(right_depth).unwrap_or(0);
+    if node.is_black() {
+        depth + 1
+    } else {
+        depth
+    }
+}
+
+fn check<T: PartialOrd + Copy, V>(tree: &IntervalMap<T, V>) {
+    if tree.root == UNDEFINED {
+        assert!(tree.nodes.is_empty(), "Non empty nodes with an empty root");
+        return;
+    }
+    for i in 0..tree.nodes.len() {
+        if i == tree.root {
+            assert!(tree.nodes[i].parent == UNDEFINED, "Root {} has a parent {}", i, tree.nodes[i].parent);
+        } else {
+            assert!(tree.nodes[i].parent != UNDEFINED, "Non-root {} has an empty parent (root is {})", i, tree.root);
+        }
+    }
+
+    let node = &tree.nodes[tree.root];
+    let mut interval = node.interval.clone();
+    let mut visited = BitVec::from_elem(tree.nodes.len(), false);
+    check_tree_recursive(tree, tree.root, &mut interval, &mut visited);
+    assert!(interval == node.subtree_interval, "Interval != subtree interval for node {}", tree.root);
+}
 
 struct NaiveIntervalMap<T: PartialOrd + Copy, V> {
     nodes: Vec<(Range<T>, V)>,
@@ -54,7 +119,7 @@ fn generate_ordered_pair<T: PartialOrd + Copy, F: FnMut() -> T>(generator: &mut 
     }
 }
 
-fn modify_maps<T, F>(naive: &mut NaiveIntervalMap<T, u32>, tree: &mut iset::IntervalMap<T, u32>, n_inserts: u32,
+fn modify_maps<T, F>(naive: &mut NaiveIntervalMap<T, u32>, tree: &mut IntervalMap<T, u32>, n_inserts: u32,
         mut generator: F) -> String
 where T: PartialOrd + Copy + Debug,
       F: FnMut() -> T,
@@ -63,6 +128,7 @@ where T: PartialOrd + Copy + Debug,
     for i in 0..n_inserts {
         let (a, b) = generate_ordered_pair(&mut generator);
         let range = a..b;
+        println!("tree.insert({:?}, {});", range, i);
         writeln!(history, "insert({:?})", range).unwrap();
         naive.insert(range.clone(), i);
         tree.insert(range.clone(), i);
@@ -94,7 +160,7 @@ fn change_int_pair(difference: i32) -> impl (FnMut(&Range<i32>) -> Range<i32>) {
     }
 }
 
-fn search_rand<T, F>(naive: &mut NaiveIntervalMap<T, u32>, tree: &mut iset::IntervalMap<T, u32>, n_searches: u32,
+fn search_rand<T, F>(naive: &mut NaiveIntervalMap<T, u32>, tree: &mut IntervalMap<T, u32>, n_searches: u32,
         mut generator: F, history: &str)
 where T: PartialOrd + Copy + Debug,
 F: FnMut() -> T,
@@ -114,7 +180,7 @@ F: FnMut() -> T,
     }
 }
 
-fn search_changed<T, F>(naive: &mut NaiveIntervalMap<T, u32>, tree: &mut iset::IntervalMap<T, u32>, n_searches: u32,
+fn search_changed<T, F>(naive: &mut NaiveIntervalMap<T, u32>, tree: &mut IntervalMap<T, u32>, n_searches: u32,
         mut changer: F, history: &str)
 where T: PartialOrd + Copy + Debug,
       F: FnMut(&Range<T>) -> Range<T>,
@@ -137,21 +203,13 @@ where T: PartialOrd + Copy + Debug,
 #[test]
 fn test_inserts() {
     let mut naive = NaiveIntervalMap::new();
-    let mut tree = iset::IntervalMap::new();
+    let mut tree = IntervalMap::new();
     let history = modify_maps(&mut naive, &mut tree, 100, generate_int(0..100));
-    let f = File::create("tests/data/out.dot").unwrap();
-    tree.write_dot(f).unwrap();
-    search_rand(&mut naive, &mut tree, 100, generate_int(0..100), &history);
-    search_changed(&mut naive, &mut tree, 10000, change_int_pair(1), &history);
-}
 
-#[test]
-fn test_inserts2() {
-    let mut naive = NaiveIntervalMap::new();
-    let mut tree = iset::IntervalMap::new();
-    let history = modify_maps(&mut naive, &mut tree, 1000, generate_int(0..1000));
     let f = File::create("tests/data/out.dot").unwrap();
     tree.write_dot(f).unwrap();
-    search_rand(&mut naive, &mut tree, 1000, generate_int(-2..1002), &history);
-    search_changed(&mut naive, &mut tree, 10000, change_int_pair(2), &history);
+    check(&tree);
+
+    search_rand(&mut naive, &mut tree, 100, generate_int(0..100), &history);
+    search_changed(&mut naive, &mut tree, 100, change_int_pair(1), &history);
 }

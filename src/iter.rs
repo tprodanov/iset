@@ -193,7 +193,7 @@ iterator! {
 }
 
 iterator! {
-    #[doc="Iterator over mutable values."]
+    #[doc="Iterator over pairs `(x..y, &mut value)`."]
     struct IterMut -> (Range<T>, &'a mut V),
     self -> (self.nodes[self.index].interval.to_range(),
         unsafe { &mut *(&mut self.nodes[self.index].value as *mut V) }), { mut }

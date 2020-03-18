@@ -194,7 +194,7 @@ fn check_interval_incl<T: PartialOrd>(start: &T, end: &T) {
 /// let map: iset::IntervalMap<_, _> = vec![(10..20, "a"), (0..20, "b")]
 ///                                        .into_iter().collect();
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct IntervalMap<T: PartialOrd + Copy, V> {
     nodes: Vec<Node<T, V>>,
     root: usize,
@@ -535,6 +535,22 @@ impl<T: PartialOrd + Copy + Display, V: Display> IntervalMap<T, V> {
     }
 }
 
+impl<T: PartialOrd + Copy + Debug, V: Debug> Debug for IntervalMap<T, V> {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        write!(f, "{{")?;
+        let mut need_comma = false;
+        for (interval, value) in self.iter(..) {
+            if need_comma {
+                write!(f, ", ")?;
+            } else {
+                need_comma = true;
+            }
+            write!(f, "{:?}: {:?}", interval, value)?;
+        }
+        write!(f, "}}")
+    }
+}
+
 /// Set with interval keys (ranges `x..y`). Newtype over `IntervalMap<T, ()>`.
 ///
 /// See [IntervalMap](struct.IntervalMap.html) for more information.
@@ -562,13 +578,16 @@ impl<T: PartialOrd + Copy + Display, V: Display> IntervalMap<T, V> {
 /// set.insert(0.0..inf);
 /// let c: Vec<_> = set.overlap(0.5).collect();
 /// assert_eq!(c, &[0.0..inf, 0.4..1.5]);
+///
+/// println!("{:?}", set);
+/// // {-1.0..0.2, 0.0..inf, 0.1..0.5, 0.4..1.5}
 /// ```
 ///
 /// You can also construct `IntervalSet` using `collect()`:
 /// ```rust
 /// let set: iset::IntervalSet<_> = vec![10..20, 0..20].into_iter().collect();
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct IntervalSet<T: PartialOrd + Copy> {
     inner: IntervalMap<T, ()>,
 }
@@ -635,5 +654,21 @@ impl<T: PartialOrd + Copy> std::iter::FromIterator<Range<T>> for IntervalSet<T> 
             set.insert(range);
         }
         set
+    }
+}
+
+impl<T: PartialOrd + Copy + Debug> Debug for IntervalSet<T> {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        write!(f, "{{")?;
+        let mut need_comma = false;
+        for interval in self.iter(..) {
+            if need_comma {
+                write!(f, ", ")?;
+            } else {
+                need_comma = true;
+            }
+            write!(f, "{:?}", interval)?;
+        }
+        write!(f, "}}")
     }
 }

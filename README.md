@@ -29,6 +29,9 @@ assert_eq!(b, &[10..20, 15..25]);
 // Iterate over values that overlap query (20.. here). Output is sorted by intervals.
 let c: Vec<_> = map.values(20..).collect();
 assert_eq!(c, &[&"b", &"a"]);
+
+println!("{:?}", map);
+// {10..20: "c", 15..25: "b", 20..30: "a"}
 ```
 
 You can find more detailed usage [here](https://docs.rs/iset).

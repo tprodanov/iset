@@ -127,7 +127,6 @@ where T: PartialOrd + Copy + Debug,
     for i in 0..n_inserts {
         let (a, b) = generate_ordered_pair(&mut generator, true);
         let range = a..b;
-        println!("tree.insert({:?}, {});", range, i);
         writeln!(history, "insert({:?})", range).unwrap();
         naive.insert(range.clone(), i);
         tree.insert(range.clone(), i);
@@ -210,6 +209,30 @@ where T: PartialOrd + Copy + Debug,
     }
 }
 
+fn compare_extremums<T>(naive: &NaiveIntervalMap<T, u32>, tree: &IntervalMap<T, u32>, history: &str)
+where T: PartialOrd + Copy + Debug
+{
+    let smallest_a = naive.nodes.iter()
+        .min_by(|a, b| (a.0.start, a.0.end, a.1).partial_cmp(&(b.0.start, b.0.end, b.1)).unwrap())
+        .map(|(interval, _)| interval.clone());
+    let smallest_b = tree.smallest().map(|(interval, _)| interval);
+    if smallest_a != smallest_b {
+        println!("{}", history);
+        println!();
+        assert_eq!(smallest_a, smallest_b);
+    }
+
+    let largest_a = naive.nodes.iter()
+        .max_by(|a, b| (a.0.start, a.0.end, a.1).partial_cmp(&(b.0.start, b.0.end, b.1)).unwrap())
+        .map(|(interval, _)| interval.clone());
+    let largest_b = tree.largest().map(|(interval, _)| interval);
+    if largest_a != largest_b {
+        println!("{}", history);
+        println!();
+        assert_eq!(largest_a, largest_b);
+    }
+}
+
 #[test]
 fn test_int_inserts() {
     const COUNT: u32 = 1000;
@@ -220,6 +243,7 @@ fn test_int_inserts() {
     let f = File::create("tests/data/int.dot").unwrap();
     tree.write_dot(f).unwrap();
     check(&tree);
+    compare_extremums(&naive, &tree, &history);
 
     search_rand(&mut naive, &mut tree, COUNT, generate_range(generate_int(0..100)), &history);
     search_rand(&mut naive, &mut tree, COUNT, generate_range_from(generate_int(0..100)), &history);
@@ -239,6 +263,7 @@ fn test_float_inserts() {
     let f = File::create("tests/data/float.dot").unwrap();
     tree.write_dot(f).unwrap();
     check(&tree);
+    compare_extremums(&naive, &tree, &history);
 
     search_rand(&mut naive, &mut tree, COUNT, generate_range(generate_float(0.0..1.0)), &history);
     search_rand(&mut naive, &mut tree, COUNT, generate_range_from(generate_float(0.0..1.0)), &history);

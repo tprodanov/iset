@@ -515,6 +515,58 @@ impl<T: PartialOrd + Copy, V> IntervalMap<T, V> {
     pub fn values_overlap_mut<'a>(&'a mut self, point: T) -> ValuesMut<'a, T, V, RangeInclusive<T>> {
         ValuesMut::new(self, point..=point)
     }
+
+    /// Returns the pair `(x..y, &value)` with the smallest `x..y` (intervals are sorted lexicographically).
+    /// Takes *O(log N)*.
+    pub fn smallest(&self) -> Option<(Range<T>, &V)> {
+        let mut index = self.root;
+        if index == UNDEFINED {
+            return None;
+        }
+        while self.nodes[index].left != UNDEFINED {
+            index = self.nodes[index].left;
+        }
+        Some((self.nodes[index].interval.to_range(), &self.nodes[index].value))
+    }
+
+    /// Returns the pair `(x..y, &mut value)` with the smallest `x..y` (intervals are sorted lexicographically).
+    /// Takes *O(log N)*.
+    pub fn smallest_mut(&mut self) -> Option<(Range<T>, &mut V)> {
+        let mut index = self.root;
+        if index == UNDEFINED {
+            return None;
+        }
+        while self.nodes[index].left != UNDEFINED {
+            index = self.nodes[index].left;
+        }
+        Some((self.nodes[index].interval.to_range(), &mut self.nodes[index].value))
+    }
+
+    /// Returns the pair `(x..y, &value)` with the largest `x..y` (intervals are sorted lexicographically).
+    /// Takes *O(log N)*.
+    pub fn largest(&self) -> Option<(Range<T>, &V)> {
+        let mut index = self.root;
+        if index == UNDEFINED {
+            return None;
+        }
+        while self.nodes[index].right != UNDEFINED {
+            index = self.nodes[index].right;
+        }
+        Some((self.nodes[index].interval.to_range(), &self.nodes[index].value))
+    }
+
+    /// Returns the pair `(x..y, &mut value)` with the largest `x..y` (intervals are sorted lexicographically).
+    /// Takes *O(log N)*.
+    pub fn largest_mut(&mut self) -> Option<(Range<T>, &mut V)> {
+        let mut index = self.root;
+        if index == UNDEFINED {
+            return None;
+        }
+        while self.nodes[index].right != UNDEFINED {
+            index = self.nodes[index].right;
+        }
+        Some((self.nodes[index].interval.to_range(), &mut self.nodes[index].value))
+    }
 }
 
 impl<T: PartialOrd + Copy, V> std::iter::IntoIterator for IntervalMap<T, V> {

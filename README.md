@@ -38,7 +38,7 @@ You can find more detailed usage [here](https://docs.rs/iset).
 
 ## Future features:
 - Remove intervals from `IntervalMap` and `IntervalSet`.
-- Get smallest and largest interval in the tree.
+- Get all (interval, value) pairs by exact match with the query.
 - Join two maps/sets, split map/set into two.
 - Additional template parameter: Ix.
     Use `u32` indices if largest number of intervals is not supposed to be bigger than `u32::MAX`.

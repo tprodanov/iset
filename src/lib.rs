@@ -5,7 +5,12 @@
 //! The tree takes *O(N)* space and allows insertion in *O(log N)*.
 //! [IntervalMap](struct.IntervalMap.html) allows to search for all entries overlapping a query (interval or a point,
 //! output would be sorted by keys). Search takes *O(log N + K)* where *K* is the size of the output.
+//! Additionally, you can extract smallest/largest interval with its value in *O(log N)*.
+//!
 //! [IntervalSet](struct.IntervalSet.html) is a newtype over [IntervalMap](struct.IntervalMap.html) with empty values.
+//!
+//! Any iterator that goes over the [IntervalMap](struct.IntervalMap.html) or [IntervalSet](struct.IntervalSet.html)
+//! returns intervals/values sorted lexicographically by intervals.
 
 // TODO:
 // - smallest, largest
@@ -191,6 +196,9 @@ fn check_interval_incl<T: PartialOrd>(start: &T, end: &T) {
 ///
 /// Additionally, you can use mutable iterators [iter_mut](#method.iter_mut), [values_mut](#method.values_mut)
 /// as well as [overlap_mut](#method.overlap_mut) and [values_overlap_mut](#method.values_overlap_mut).
+///
+/// You can get a value that corresponds to the [smallest](#method.smallest) or [largest](#method.largest)
+/// interval in *O(log N)*.
 ///
 /// You can construct [IntervalMap](struct.IntervalMap.html) using `collect()`:
 /// ```rust
@@ -517,7 +525,7 @@ impl<T: PartialOrd + Copy, V> IntervalMap<T, V> {
     }
 
     /// Returns the pair `(x..y, &value)` with the smallest `x..y` (intervals are sorted lexicographically).
-    /// Takes *O(log N)*.
+    /// Takes *O(log N)*. Returns `None` if the map is empty.
     pub fn smallest(&self) -> Option<(Range<T>, &V)> {
         let mut index = self.root;
         if index == UNDEFINED {
@@ -530,7 +538,7 @@ impl<T: PartialOrd + Copy, V> IntervalMap<T, V> {
     }
 
     /// Returns the pair `(x..y, &mut value)` with the smallest `x..y` (intervals are sorted lexicographically).
-    /// Takes *O(log N)*.
+    /// Takes *O(log N)*. Returns `None` if the map is empty.
     pub fn smallest_mut(&mut self) -> Option<(Range<T>, &mut V)> {
         let mut index = self.root;
         if index == UNDEFINED {
@@ -543,7 +551,7 @@ impl<T: PartialOrd + Copy, V> IntervalMap<T, V> {
     }
 
     /// Returns the pair `(x..y, &value)` with the largest `x..y` (intervals are sorted lexicographically).
-    /// Takes *O(log N)*.
+    /// Takes *O(log N)*. Returns `None` if the map is empty.
     pub fn largest(&self) -> Option<(Range<T>, &V)> {
         let mut index = self.root;
         if index == UNDEFINED {
@@ -556,7 +564,7 @@ impl<T: PartialOrd + Copy, V> IntervalMap<T, V> {
     }
 
     /// Returns the pair `(x..y, &mut value)` with the largest `x..y` (intervals are sorted lexicographically).
-    /// Takes *O(log N)*.
+    /// Takes *O(log N)*. Returns `None` if the map is empty.
     pub fn largest_mut(&mut self) -> Option<(Range<T>, &mut V)> {
         let mut index = self.root;
         if index == UNDEFINED {
@@ -650,6 +658,8 @@ impl<T: PartialOrd + Copy + Debug, V: Debug> Debug for IntervalMap<T, V> {
 ///
 /// There are no mutable iterators over [IntervalSet](struct.IntervalSet.html) as keys should be immutable.
 ///
+/// You can get [smallest](#method.smallest) and [largest](#method.largest) intervals in *O(log N)*.
+///
 /// You can construct [IntervalSet](struct.IntervalSet.html) using `collect()`:
 /// ```rust
 /// let set: iset::IntervalSet<_> = vec![10..20, 0..20].into_iter().collect();
@@ -710,6 +720,18 @@ impl<T: PartialOrd + Copy> IntervalSet<T> {
     /// See [iter](#method.iter) for more details.
     pub fn overlap<'a>(&'a self, point: T) -> Intervals<'a, T, (), RangeInclusive<T>> {
         self.inner.intervals(point..=point)
+    }
+
+    /// Returns the smallest interval in the set (intervals are sorted lexicographically).
+    /// Takes *O(log N)*. Returns `None` if the set is empty.
+    pub fn smallest(&self) -> Option<Range<T>> {
+        self.inner.smallest().map(|(interval, _)| interval)
+    }
+
+    /// Returns the largest interval in the set (intervals are sorted lexicographically).
+    /// Takes *O(log N)*. Returns `None` if the set is empty.
+    pub fn largest(&self) -> Option<Range<T>> {
+        self.inner.largest().map(|(interval, _)| interval)
     }
 }
 

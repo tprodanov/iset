@@ -1,11 +1,11 @@
 //! This crates implements map and set with interval keys (ranges `x..y`).
 
-//! `IntervalMap` is implemented using red-black binary tree, where each node contains information
-//! about the smallest start and largest end in its subtree.
+//! [IntervalMap](struct.IntervalMap.html) is implemented using red-black binary tree, where each node contains
+//! information about the smallest start and largest end in its subtree.
 //! The tree takes *O(N)* space and allows insertion in *O(log N)*.
-//! `IntervalMap` allows to search for all entries overlapping a query (interval or a point,
+//! [IntervalMap](struct.IntervalMap.html) allows to search for all entries overlapping a query (interval or a point,
 //! output would be sorted by keys). Search takes *O(log N + K)* where *K* is the size of the output.
-//! `IntervalSet` is a newtype over `IntervalMap` with empty values.
+//! [IntervalSet](struct.IntervalSet.html) is a newtype over [IntervalMap](struct.IntervalMap.html) with empty values.
 
 // TODO:
 // - smallest, largest
@@ -189,10 +189,22 @@ fn check_interval_incl<T: PartialOrd>(start: &T, end: &T) {
 /// [values_overlap](#method.values_overlap) allow to search for intervals/values that overlap a single point
 /// (same as `x..=x`).
 ///
-/// You can also construct `IntervalMap` using `collect()`:
+/// Additionally, you can use mutable iterators [iter_mut](#method.iter_mut), [values_mut](#method.values_mut)
+/// as well as [overlap_mut](#method.overlap_mut) and [values_overlap_mut](#method.values_overlap_mut).
+///
+/// You can construct [IntervalMap](struct.IntervalMap.html) using `collect()`:
 /// ```rust
 /// let map: iset::IntervalMap<_, _> = vec![(10..20, "a"), (0..20, "b")]
 ///                                        .into_iter().collect();
+/// ```
+///
+/// You can also construct [IntervalMap](struct.IntervalMap.html) using [interval_map](macro.interval_map.html) macro:
+/// ```rust
+/// #[macro_use] extern crate iset;
+///
+/// let map = interval_map!{ 0..10 => "a", 5..15 => "b", -5..20 => "c" };
+/// let a: Vec<_> = map.iter(..).collect();
+/// assert_eq!(a, &[(-5..20, &"c"), (0..10, &"a"), (5..15, &"b")]);
 /// ```
 #[derive(Clone)]
 pub struct IntervalMap<T: PartialOrd + Copy, V> {
@@ -201,7 +213,7 @@ pub struct IntervalMap<T: PartialOrd + Copy, V> {
 }
 
 impl<T: PartialOrd + Copy, V> IntervalMap<T, V> {
-    /// Creates an empty `IntervalMap`.
+    /// Creates an empty [IntervalMap](struct.IntervalMap.html).
     pub fn new() -> Self {
         Self {
             nodes: Vec::new(),
@@ -209,7 +221,7 @@ impl<T: PartialOrd + Copy, V> IntervalMap<T, V> {
         }
     }
 
-    /// Creates an empty `IntervalMap` with `capacity`.
+    /// Creates an empty [IntervalMap](struct.IntervalMap.html) with `capacity`.
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
             nodes: Vec::with_capacity(capacity),
@@ -467,7 +479,8 @@ impl<T: PartialOrd + Copy, V> IntervalMap<T, V> {
         ValuesMut::new(self, query)
     }
 
-    /// Consumes `IntervalMap` and iterates over pairs `(x..y, value)` that overlap the `query`.
+    /// Consumes [IntervalMap](struct.IntervalMap.html) and
+    /// iterates over pairs `(x..y, value)` that overlap the `query`.
     /// See [iter](#method.iter) for more details.
     pub fn into_iter<R: RangeBounds<T>>(self, query: R) -> IntoIter<T, V, R> {
         IntoIter::new(self, query)
@@ -513,7 +526,7 @@ impl<T: PartialOrd + Copy, V> std::iter::IntoIterator for IntervalMap<T, V> {
     }
 }
 
-/// Construct `IntervalMap` from pairs `(x..y, value)`.
+/// Construct [IntervalMap](struct.IntervalMap.html) from pairs `(x..y, value)`.
 impl<T: PartialOrd + Copy, V> std::iter::FromIterator<(Range<T>, V)> for IntervalMap<T, V> {
     fn from_iter<I: IntoIterator<Item = (Range<T>, V)>>(iter: I) -> Self {
         let mut map = IntervalMap::new();
@@ -583,9 +596,20 @@ impl<T: PartialOrd + Copy + Debug, V: Debug> Debug for IntervalMap<T, V> {
 /// // {-1.0..0.2, 0.0..inf, 0.1..0.5, 0.4..1.5}
 /// ```
 ///
-/// You can also construct `IntervalSet` using `collect()`:
+/// There are no mutable iterators over [IntervalSet](struct.IntervalSet.html) as keys should be immutable.
+///
+/// You can construct [IntervalSet](struct.IntervalSet.html) using `collect()`:
 /// ```rust
 /// let set: iset::IntervalSet<_> = vec![10..20, 0..20].into_iter().collect();
+/// ```
+///
+/// You can also construct [IntervalSet](struct.IntervalSet.html) using [interval_set](macro.interval_set.html) macro:
+/// ```rust
+/// #[macro_use] extern crate iset;
+///
+/// let set = interval_set!{ 100..210, 50..150 };
+/// let a: Vec<_> = set.iter(..).collect();
+/// assert_eq!(a, &[50..150, 100..210]);
 /// ```
 #[derive(Clone)]
 pub struct IntervalSet<T: PartialOrd + Copy> {
@@ -593,14 +617,14 @@ pub struct IntervalSet<T: PartialOrd + Copy> {
 }
 
 impl<T: PartialOrd + Copy> IntervalSet<T> {
-    /// Creates an empty `IntervalSet`.
+    /// Creates an empty [IntervalSet](struct.IntervalSet.html).
     pub fn new() -> Self {
         Self {
             inner: IntervalMap::new(),
         }
     }
 
-    /// Creates an empty `IntervalSet` with `capacity`.
+    /// Creates an empty [IntervalSet](struct.IntervalSet.html) with `capacity`.
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
             inner: IntervalMap::with_capacity(capacity),
@@ -646,7 +670,7 @@ impl<T: PartialOrd + Copy> std::iter::IntoIterator for IntervalSet<T> {
     }
 }
 
-/// Construct `IntervalSet` from ranges `x..y`.
+/// Construct [IntervalSet](struct.IntervalSet.html) from ranges `x..y`.
 impl<T: PartialOrd + Copy> std::iter::FromIterator<Range<T>> for IntervalSet<T> {
     fn from_iter<I: IntoIterator<Item = Range<T>>>(iter: I) -> Self {
         let mut set = IntervalSet::new();
@@ -671,4 +695,46 @@ impl<T: PartialOrd + Copy + Debug> Debug for IntervalSet<T> {
         }
         write!(f, "}}")
     }
+}
+
+/// Creates [IntervalMap](struct.IntervalMap.html) containing the arguments:
+/// ```rust
+/// #[macro_use] extern crate iset;
+///
+/// let map = interval_map!{ 0..10 => "a", 5..15 => "b", -5..20 => "c" };
+/// let a: Vec<_> = map.iter(..).collect();
+/// assert_eq!(a, &[(-5..20, &"c"), (0..10, &"a"), (5..15, &"b")]);
+/// ```
+#[macro_export]
+macro_rules! interval_map {
+    ( $( $k:expr => $v:expr ),* ) => {
+        {
+            let mut _temp_map = iset::IntervalMap::new();
+            $(
+                _temp_map.insert($k, $v);
+            )*
+            _temp_map
+        }
+    };
+}
+
+/// Creates [IntervalSet](struct.IntervalSet.html) containing the arguments:
+/// ```rust
+/// #[macro_use] extern crate iset;
+///
+/// let set = interval_set!{ 100..210, 50..150 };
+/// let a: Vec<_> = set.iter(..).collect();
+/// assert_eq!(a, &[50..150, 100..210]);
+/// ```
+#[macro_export]
+macro_rules! interval_set {
+    ( $( $k:expr ),* ) => {
+        {
+            let mut _temp_set = iset::IntervalSet::new();
+            $(
+                _temp_set.insert($k);
+            )*
+            _temp_set
+        }
+    };
 }

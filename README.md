@@ -26,12 +26,20 @@ assert_eq!(a, &[(10..20, &"c"), (15..25, &"b"), (20..30, &"a")]);
 let b: Vec<_> = map.intervals(..20).collect();
 assert_eq!(b, &[10..20, 15..25]);
 
-// Iterate over &values that overlap query (20.. here). Output is sorted by intervals.
+// Iterate over values that overlap query (20.. here). Output is sorted by intervals.
 let c: Vec<_> = map.values(20..).collect();
 assert_eq!(c, &[&"b", &"a"]);
 ```
 
 You can find more detailed usage [here](https://docs.rs/iset).
+
+## Future features:
+- Remove intervals from `IntervalMap` and `IntervalSet`.
+- Get smallest and largest interval in the tree.
+- Join two maps/sets, split map/set into two.
+- Additional template parameter: Ix.
+    Use `u32` indices if largest number of intervals is not supposed to be bigger than `u32::MAX`.
+- Create interval set and map using macros.
 
 ## Changelog
 You can find changelog [here](https://gitlab.com/tprodanov/iset/-/releases).

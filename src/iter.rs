@@ -130,26 +130,28 @@ where T: PartialOrd + Copy,
     index
 }
 
-
 /// Macro that generates Iterator over IntervalMap.
-/// Arguments: (name of the struct, Iterator::Type, self (because of the macros hygeine), output expression)
-macro_rules! map_iterator {
-    ($(#[$outer:meta])* struct $name:ident -> $item:ty, $self:ident -> $out:expr) => {
+macro_rules! iterator {
+    (
+        $(#[$outer:meta])*
+        struct $name:ident -> $item:ty,
+        $self:ident -> $out:expr, {$( $mut_:tt )*}
+    ) => {
         $(#[$outer])*
         pub struct $name<'a, T: PartialOrd + Copy, V, R: RangeBounds<T>> {
             index: usize,
             range: R,
-            nodes: &'a [Node<T, V>],
+            nodes: &'a $( $mut_ )* [Node<T, V>],
             stack: ActionStack,
         }
 
         impl<'a, T: PartialOrd + Copy, V, R: RangeBounds<T>> $name<'a, T, V, R> {
-            pub(crate) fn new(tree: &'a IntervalMap<T, V>, range: R) -> Self {
+            pub(crate) fn new(tree: &'a $( $mut_ )* IntervalMap<T, V>, range: R) -> Self {
                 check_ordered(&range);
                 Self {
                     index: tree.root,
                     range,
-                    nodes: &tree.nodes,
+                    nodes: & $( $mut_ )* tree.nodes,
                     stack: ActionStack::new(),
                 }
             }
@@ -172,20 +174,35 @@ macro_rules! map_iterator {
     }
 }
 
-map_iterator! {
+iterator! {
     #[doc="Iterator over pairs `(x..y, &value)`."]
     struct Iter -> (Range<T>, &'a V),
-    self -> (self.nodes[self.index].interval.to_range(), &self.nodes[self.index].value)
+    self -> (self.nodes[self.index].interval.to_range(), &self.nodes[self.index].value), { /* no mut */ }
 }
-map_iterator! {
+
+iterator! {
     #[doc="Iterator over intervals `x..y`."]
     struct Intervals -> Range<T>,
-    self -> self.nodes[self.index].interval.to_range()
+    self -> self.nodes[self.index].interval.to_range(), { /* no mut */ }
 }
-map_iterator! {
-    #[doc="Iterator over pairs `&values`."]
+
+iterator! {
+    #[doc="Iterator over values."]
     struct Values -> &'a V,
-    self -> &self.nodes[self.index].value
+    self -> &self.nodes[self.index].value, { /* no mut */ }
+}
+
+iterator! {
+    #[doc="Iterator over mutable values."]
+    struct IterMut -> (Range<T>, &'a mut V),
+    self -> (self.nodes[self.index].interval.to_range(),
+        unsafe { &mut *(&mut self.nodes[self.index].value as *mut V) }), { mut }
+}
+
+iterator! {
+    #[doc="Iterator over mutable values."]
+    struct ValuesMut -> &'a mut V,
+    self -> unsafe { &mut *(&mut self.nodes[self.index].value as *mut V) }, { mut }
 }
 
 /// Iterator over pairs `(x..y, value)`. Takes ownership of `IntervalMap`.

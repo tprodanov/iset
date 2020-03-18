@@ -176,7 +176,7 @@ fn check_interval_incl<T: PartialOrd>(start: &T, end: &T) {
 /// let b: Vec<_> = map.intervals(..20).collect();
 /// assert_eq!(b, &[10..20, 15..25]);
 ///
-/// // Iterate over &values that overlap query (20.. here). Output is sorted by intervals.
+/// // Iterate over values that overlap query (20.. here). Output is sorted by intervals.
 /// let c: Vec<_> = map.values(20..).collect();
 /// assert_eq!(c, &[&"b", &"a"]);
 /// ```
@@ -357,7 +357,8 @@ impl<T: PartialOrd + Copy, V> IntervalMap<T, V> {
 
     /// Inserts an interval `x..y` and its value. Takes *O(log N)*.
     ///
-    /// Panics if `interval` contains value that cannot be compared (such as `NAN`).
+    /// Panics if `interval` is empty (`start >= end`)
+    /// or contains a value that cannot be compared (such as `NAN`).
     pub fn insert(&mut self, interval: Range<T>, value: V) {
         check_interval(&interval.start, &interval.end);
         let new_ind = self.nodes.len();
@@ -437,7 +438,7 @@ impl<T: PartialOrd + Copy, V> IntervalMap<T, V> {
     /// Takes *O(log N + K)* where *K* is the size of the output.
     /// Output is sorted by intervals, but not by values.
     ///
-    /// Panics if `interval` contains value that cannot be compared (such as `NAN`).
+    /// Panics if `interval` is empty or contains a value that cannot be compared (such as `NAN`).
     pub fn iter<'a, R: RangeBounds<T>>(&'a self, query: R) -> Iter<'a, T, V, R> {
         Iter::new(self, query)
     }
@@ -448,10 +449,22 @@ impl<T: PartialOrd + Copy, V> IntervalMap<T, V> {
         Intervals::new(self, query)
     }
 
-    /// Iterates over `&values` that overlap the `query`.
+    /// Iterates over values that overlap the `query`.
     /// See [iter](#method.iter) for more details.
     pub fn values<'a, R: RangeBounds<T>>(&'a self, query: R) -> Values<'a, T, V, R> {
         Values::new(self, query)
+    }
+
+    /// Iterator over pairs `(x..y, &mut value)` that overlap the `query`.
+    /// See [iter](#method.iter) for more details.
+    pub fn iter_mut<'a, R: RangeBounds<T>>(&'a mut self, query: R) -> IterMut<'a, T, V, R> {
+        IterMut::new(self, query)
+    }
+
+    /// Iterator over *mutable* values that overlap the `query`.
+    /// See [iter](#method.iter) for more details.
+    pub fn values_mut<'a, R: RangeBounds<T>>(&'a mut self, query: R) -> ValuesMut<'a, T, V, R> {
+        ValuesMut::new(self, query)
     }
 
     /// Consumes `IntervalMap` and iterates over pairs `(x..y, value)` that overlap the `query`.
@@ -472,10 +485,22 @@ impl<T: PartialOrd + Copy, V> IntervalMap<T, V> {
         Intervals::new(self, point..=point)
     }
 
-    /// Iterates over &values that overlap the `point`.
+    /// Iterates over values that overlap the `point`.
     /// See [iter](#method.iter) for more details.
     pub fn values_overlap<'a>(&'a self, point: T) -> Values<'a, T, V, RangeInclusive<T>> {
         Values::new(self, point..=point)
+    }
+
+    /// Iterator over pairs `(x..y, &mut value)` that overlap the `point`.
+    /// See [iter](#method.iter) for more details.
+    pub fn overlap_mut<'a>(&'a mut self, point: T) -> IterMut<'a, T, V, RangeInclusive<T>> {
+        IterMut::new(self, point..=point)
+    }
+
+    /// Iterates over *mutable* values that overlap the `point`.
+    /// See [iter](#method.iter) for more details.
+    pub fn values_overlap_mut<'a>(&'a mut self, point: T) -> ValuesMut<'a, T, V, RangeInclusive<T>> {
+        ValuesMut::new(self, point..=point)
     }
 }
 
@@ -571,7 +596,8 @@ impl<T: PartialOrd + Copy> IntervalSet<T> {
 
     /// Inserts an interval `x..y`. Takes *O(log N)*.
     ///
-    /// Panics if `interval` contains value that cannot be compared (such as `NAN`).
+    /// Panics if `interval` is empty (`start >= end`)
+    /// or contains a value that cannot be compared (such as `NAN`).
     pub fn insert(&mut self, interval: Range<T>) {
         self.inner.insert(interval, ());
     }
@@ -580,7 +606,7 @@ impl<T: PartialOrd + Copy> IntervalSet<T> {
     /// Takes *O(log N + K)* where *K* is the size of the output.
     /// Output is sorted by intervals.
     ///
-    /// Panics if `interval` contains value that cannot be compared (such as `NAN`).
+    /// Panics if `interval` is empty or contains a value that cannot be compared (such as `NAN`).
     pub fn iter<'a, R: RangeBounds<T>>(&'a self, query: R) -> Intervals<'a, T, (), R> {
         self.inner.intervals(query)
     }

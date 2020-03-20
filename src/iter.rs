@@ -1,3 +1,4 @@
+//! Module with various iterators over `IntervalMap` and `IntervalSet`.
 
 use std::ops::{Range, RangeFull, RangeBounds, Bound};
 use std::iter::FusedIterator;

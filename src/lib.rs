@@ -80,21 +80,27 @@ impl<T: PartialOrd + Copy> Interval<T> {
     }
 }
 
+/// Trait for index types: used in the inner representation of [IntervalMap](struct.IntervalMap.html) and
+/// [IntervalSet](struct.IntervalSet.html).
+///
+/// Implemented for `u8`, `u16`, `u32`, `u64` and `u128`. [DefaultIx](type.DefaultIx.html) is an alias for default
+/// index type (`u32`). `IntervalMap` or `IntervalSet` can store up to `min(usize::MAX, Ix::MAX - 1)` elements.
+///
+/// Using smaller index type saves memory usage and may reduce running time.
 pub trait IndexType: Copy + Display + Sized + Eq {
-    #[doc(hidden)]
-    const UNDEFINED: Self;
+    /// Maximal possible value. Used for undefined indices.
+    const MAX: Self;
 
-    #[doc(hidden)]
+    /// Converts index into `usize`.
     fn get(self) -> usize;
 
-    /// Returns error if the `elemen_num` is too big.
-    #[doc(hidden)]
+    /// Creates a new index. Returns error if the `elemen_num` is too big.
     fn new(element_num: usize) -> Result<Self, &'static str>;
 
-    #[doc(hidden)]
+    /// Returns `true` if the index is defined (not equal to `Self::MAX`).
     #[inline(always)]
     fn defined(self) -> bool {
-        self != Self::UNDEFINED
+        self != Self::MAX
     }
 }
 
@@ -113,7 +119,7 @@ macro_rules! index_error {
 macro_rules! impl_index {
     ($type:ident) => {
         impl IndexType for $type {
-            const UNDEFINED: Self = std::$type::MAX;
+            const MAX: Self = std::$type::MAX;
 
             #[inline(always)]
             fn get(self) -> usize {
@@ -133,10 +139,12 @@ macro_rules! impl_index {
     };
 }
 
+impl_index!(u8);
 impl_index!(u16);
 impl_index!(u32);
 impl_index!(u64);
 impl_index!(u128);
+/// Default index type.
 pub type DefaultIx = u32;
 
 #[derive(Debug, Clone)]
@@ -156,9 +164,9 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> Node<T, V, Ix> {
             interval: Interval::new(&range),
             subtree_interval: Interval::new(&range),
             value,
-            left: Ix::UNDEFINED,
-            right: Ix::UNDEFINED,
-            parent: Ix::UNDEFINED,
+            left: Ix::MAX,
+            right: Ix::MAX,
+            parent: Ix::MAX,
             red_color: true,
         }
     }
@@ -271,6 +279,19 @@ fn check_interval_incl<T: PartialOrd>(start: &T, end: &T) {
 /// let a: Vec<_> = map.iter(..).collect();
 /// assert_eq!(a, &[(-5..20, &"c"), (0..10, &"a"), (5..15, &"b")]);
 /// ```
+///
+/// # Index types:
+/// You can specify [index type](trait.IndexType.html) (for example `u32` and `u64`) used in the inner
+/// representation of `IntervalMap`.
+///
+/// Method [new](#method.new), macro [interval_map](macro.interval_map.html) or function
+/// `collect()` create `IntervalMap` with index type `u32`. If you wish to use another index type you can use
+/// methods [default](#method.default) or [with_capacity](#method.with_capacity). For example:
+/// ```rust
+/// let mut map: iset::IntervalMap<_, _, u64> = iset::IntervalMap::default();
+/// map.insert(10..20, "a");
+/// ```
+/// See [IndexType](trait.IndexType.html) for details.
 #[derive(Clone)]
 pub struct IntervalMap<T: PartialOrd + Copy, V, Ix: IndexType = DefaultIx> {
     nodes: Vec<Node<T, V, Ix>>,
@@ -282,7 +303,7 @@ impl<T: PartialOrd + Copy, V> IntervalMap<T, V> {
     pub fn new() -> Self {
         Self {
             nodes: Vec::new(),
-            root: DefaultIx::UNDEFINED,
+            root: DefaultIx::MAX,
         }
     }
 }
@@ -291,7 +312,7 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> Default for IntervalMap<T, V, Ix> {
     fn default() -> Self {
         Self {
             nodes: Vec::new(),
-            root: Ix::UNDEFINED,
+            root: Ix::MAX,
         }
     }
 }
@@ -301,7 +322,7 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
             nodes: Vec::with_capacity(capacity),
-            root: Ix::UNDEFINED,
+            root: Ix::MAX,
         }
     }
 
@@ -327,7 +348,7 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
     fn sibling(&self, index: Ix) -> Ix {
         let parent = self.nodes[index.get()].parent;
         if !parent.defined() {
-            Ix::UNDEFINED
+            Ix::MAX
         } else if self.nodes[parent.get()].left == index {
             self.nodes[parent.get()].right
         } else {
@@ -361,7 +382,7 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
             self.update_subtree_interval(prev_parent);
         } else {
             self.root = prev_right;
-            self.nodes[prev_right.get()].parent = Ix::UNDEFINED;
+            self.nodes[prev_right.get()].parent = Ix::MAX;
         }
     }
 
@@ -391,7 +412,7 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
             self.update_subtree_interval(prev_parent);
         } else {
             self.root = prev_left;
-            self.nodes[prev_left.get()].parent = Ix::UNDEFINED;
+            self.nodes[prev_left.get()].parent = Ix::MAX;
         }
     }
 
@@ -509,7 +530,7 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
     // pub fn remove(&mut self, interval: Range<T>) -> Option<V> {
     //     let interval = Interval::new(&interval);
     //     let mut i = self.root;
-    //     while i != UNDEFINED {
+    //     while i != MAX {
     //         if self.nodes[i].interval == interval {
     //             return Some(self.remove_element(i));
     //         }
@@ -741,6 +762,19 @@ impl<T: PartialOrd + Copy + Debug, V: Debug, Ix: IndexType> Debug for IntervalMa
 /// let a: Vec<_> = set.iter(..).collect();
 /// assert_eq!(a, &[50..150, 100..210]);
 /// ```
+///
+/// # Index types:
+/// You can specify [index type](trait.IndexType.html) (for example `u32` and `u64`) used in the inner
+/// representation of `IntervalSet`.
+///
+/// Method [new](#method.new), macro [interval_map](macro.interval_map.html) or function
+/// `collect()` create `IntervalSet` with index type `u32`. If you wish to use another index type you can use
+/// methods [default](#method.default) or [with_capacity](#method.with_capacity). For example:
+/// ```rust
+/// let mut set: iset::IntervalSet<_, u64> = iset::IntervalSet::default();
+/// set.insert(10..20);
+/// ```
+/// See [IndexType](trait.IndexType.html) for details.
 #[derive(Clone)]
 pub struct IntervalSet<T: PartialOrd + Copy, Ix: IndexType = DefaultIx> {
     inner: IntervalMap<T, (), Ix>,

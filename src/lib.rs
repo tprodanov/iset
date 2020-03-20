@@ -81,14 +81,21 @@ impl<T: PartialOrd + Copy> Interval<T> {
 }
 
 pub trait NodeIndex: Copy + Display + Sized + Eq {
+    #[doc(hidden)]
     const UNDEFINED: Self;
 
     #[doc(hidden)]
-    fn index(&self) -> usize;
+    fn get(&self) -> usize;
 
-    /// Returns error if the number of elements is too big.
+    /// Returns error if the `elemen_num` is too big.
     #[doc(hidden)]
     fn new(element_num: usize) -> Result<Self, &'static str>;
+
+    #[doc(hidden)]
+    #[inline]
+    fn defined(self) -> bool {
+        self != Self::UNDEFINED
+    }
 }
 
 macro_rules! index_error {
@@ -120,7 +127,7 @@ macro_rules! index_type {
             const UNDEFINED: Self = $name(std::$type::MAX);
 
             #[inline]
-            fn index(&self) -> usize {
+            fn get(&self) -> usize {
                 self.0 as usize
             }
 
@@ -137,31 +144,31 @@ macro_rules! index_type {
     };
 }
 
+index_type!{ struct U16(u16) }
 index_type!{ struct U32(u32) }
 index_type!{ struct U64(u64) }
-
-const UNDEFINED: usize = std::usize::MAX;
+pub type DefaultIx = U32;
 
 #[derive(Debug, Clone)]
-struct Node<T: PartialOrd + Copy, V> {
+struct Node<T: PartialOrd + Copy, V, Ix: NodeIndex> {
     interval: Interval<T>,
     subtree_interval: Interval<T>,
     value: V,
-    left: usize,
-    right: usize,
-    parent: usize,
+    left: Ix,
+    right: Ix,
+    parent: Ix,
     red_color: bool,
 }
 
-impl<T: PartialOrd + Copy, V> Node<T, V> {
+impl<T: PartialOrd + Copy, V, Ix: NodeIndex> Node<T, V, Ix> {
     fn new(range: Range<T>, value: V) -> Self {
         Node {
             interval: Interval::new(&range),
             subtree_interval: Interval::new(&range),
             value,
-            left: UNDEFINED,
-            right: UNDEFINED,
-            parent: UNDEFINED,
+            left: Ix::UNDEFINED,
+            right: Ix::UNDEFINED,
+            parent: Ix::UNDEFINED,
             red_color: true,
         }
     }
@@ -187,15 +194,15 @@ impl<T: PartialOrd + Copy, V> Node<T, V> {
     }
 }
 
-impl<T: PartialOrd + Copy + Display, V: Display> Node<T, V> {
-    fn write_dot<W: Write>(&self, index: usize, mut writer: W) -> io::Result<()> {
+impl<T: PartialOrd + Copy + Display, V: Display, Ix: NodeIndex> Node<T, V, Ix> {
+    fn write_dot<W: Write>(&self, index: Ix, mut writer: W) -> io::Result<()> {
         writeln!(writer, "    {} [label=\"i={}\\n{}: {}\\n{}\", fillcolor={}, style=filled]",
             index, index, self.interval, self.value, self.subtree_interval,
             if self.is_red() { "salmon" } else { "grey65" })?;
-        if self.left != UNDEFINED {
+        if self.left.defined() {
             writeln!(writer, "    {} -> {} [label=\"L\"]", index, self.left)?;
         }
-        if self.right != UNDEFINED {
+        if self.right.defined() {
             writeln!(writer, "    {} -> {} [label=\"R\"]", index, self.right)?;
         }
         Ok(())
@@ -275,25 +282,27 @@ fn check_interval_incl<T: PartialOrd>(start: &T, end: &T) {
 /// assert_eq!(a, &[(-5..20, &"c"), (0..10, &"a"), (5..15, &"b")]);
 /// ```
 #[derive(Clone)]
-pub struct IntervalMap<T: PartialOrd + Copy, V> {
-    nodes: Vec<Node<T, V>>,
-    root: usize,
+pub struct IntervalMap<T: PartialOrd + Copy, V, Ix: NodeIndex = DefaultIx> {
+    nodes: Vec<Node<T, V, Ix>>,
+    root: Ix,
 }
 
 impl<T: PartialOrd + Copy, V> IntervalMap<T, V> {
     /// Creates an empty [IntervalMap](struct.IntervalMap.html).
     pub fn new() -> Self {
-        Self {
+        IntervalMap {
             nodes: Vec::new(),
-            root: UNDEFINED,
+            root: DefaultIx::UNDEFINED,
         }
     }
+}
 
+impl<T: PartialOrd + Copy, V, Ix: NodeIndex> IntervalMap<T, V, Ix> {
     /// Creates an empty [IntervalMap](struct.IntervalMap.html) with `capacity`.
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
             nodes: Vec::with_capacity(capacity),
-            root: UNDEFINED,
+            root: Ix::UNDEFINED,
         }
     }
 
@@ -302,135 +311,135 @@ impl<T: PartialOrd + Copy, V> IntervalMap<T, V> {
         self.nodes.shrink_to_fit();
     }
 
-    fn update_subtree_interval(&mut self, index: usize) {
-        let left = self.nodes[index].left;
-        let right = self.nodes[index].right;
+    fn update_subtree_interval(&mut self, index: Ix) {
+        let left = self.nodes[index.get()].left;
+        let right = self.nodes[index.get()].right;
 
-        let mut new_interval = self.nodes[index].interval.clone();
-        if left != UNDEFINED {
-            new_interval.extend(&self.nodes[left].subtree_interval);
+        let mut new_interval = self.nodes[index.get()].interval.clone();
+        if left.defined() {
+            new_interval.extend(&self.nodes[left.get()].subtree_interval);
         }
-        if right != UNDEFINED {
-            new_interval.extend(&self.nodes[right].subtree_interval);
+        if right.defined() {
+            new_interval.extend(&self.nodes[right.get()].subtree_interval);
         }
-        self.nodes[index].subtree_interval = new_interval;
+        self.nodes[index.get()].subtree_interval = new_interval;
     }
 
-    fn sibling(&self, index: usize) -> usize {
-        let parent = self.nodes[index].parent;
-        if parent == UNDEFINED {
-            UNDEFINED
-        } else if self.nodes[parent].left == index {
-            self.nodes[parent].right
+    fn sibling(&self, index: Ix) -> Ix {
+        let parent = self.nodes[index.get()].parent;
+        if !parent.defined() {
+            Ix::UNDEFINED
+        } else if self.nodes[parent.get()].left == index {
+            self.nodes[parent.get()].right
         } else {
-            self.nodes[parent].left
+            self.nodes[parent.get()].left
         }
     }
 
-    fn rotate_left(&mut self, index: usize) {
-        let prev_parent = self.nodes[index].parent;
-        let prev_right = self.nodes[index].right;
-        debug_assert!(prev_right != UNDEFINED);
+    fn rotate_left(&mut self, index: Ix) {
+        let prev_parent = self.nodes[index.get()].parent;
+        let prev_right = self.nodes[index.get()].right;
+        debug_assert!(prev_right.defined());
 
-        let new_right = self.nodes[prev_right].left;
-        self.nodes[index].right = new_right;
-        if new_right != UNDEFINED {
-            self.nodes[new_right].parent = index;
+        let new_right = self.nodes[prev_right.get()].left;
+        self.nodes[index.get()].right = new_right;
+        if new_right.defined() {
+            self.nodes[new_right.get()].parent = index;
         }
         self.update_subtree_interval(index);
 
-        self.nodes[prev_right].left = index;
-        self.nodes[index].parent = prev_right;
+        self.nodes[prev_right.get()].left = index;
+        self.nodes[index.get()].parent = prev_right;
         self.update_subtree_interval(prev_right);
 
-        if prev_parent != UNDEFINED {
-            if self.nodes[prev_parent].left == index {
-                self.nodes[prev_parent].left = prev_right;
+        if prev_parent.defined() {
+            if self.nodes[prev_parent.get()].left == index {
+                self.nodes[prev_parent.get()].left = prev_right;
             } else {
-                self.nodes[prev_parent].right = prev_right;
+                self.nodes[prev_parent.get()].right = prev_right;
             }
-            self.nodes[prev_right].parent = prev_parent;
+            self.nodes[prev_right.get()].parent = prev_parent;
             self.update_subtree_interval(prev_parent);
         } else {
             self.root = prev_right;
-            self.nodes[prev_right].parent = UNDEFINED;
+            self.nodes[prev_right.get()].parent = Ix::UNDEFINED;
         }
     }
 
-    fn rotate_right(&mut self, index: usize) {
-        let prev_parent = self.nodes[index].parent;
-        let prev_left = self.nodes[index].left;
-        debug_assert!(prev_left != UNDEFINED);
+    fn rotate_right(&mut self, index: Ix) {
+        let prev_parent = self.nodes[index.get()].parent;
+        let prev_left = self.nodes[index.get()].left;
+        debug_assert!(prev_left.defined());
 
-        let new_left = self.nodes[prev_left].right;
-        self.nodes[index].left = new_left;
-        if new_left != UNDEFINED {
-            self.nodes[new_left].parent = index;
+        let new_left = self.nodes[prev_left.get()].right;
+        self.nodes[index.get()].left = new_left;
+        if new_left.defined() {
+            self.nodes[new_left.get()].parent = index;
         }
         self.update_subtree_interval(index);
 
-        self.nodes[prev_left].right = index;
-        self.nodes[index].parent = prev_left;
+        self.nodes[prev_left.get()].right = index;
+        self.nodes[index.get()].parent = prev_left;
         self.update_subtree_interval(prev_left);
 
-        if prev_parent != UNDEFINED {
-            if self.nodes[prev_parent].right == index {
-                self.nodes[prev_parent].right = prev_left;
+        if prev_parent.defined() {
+            if self.nodes[prev_parent.get()].right == index {
+                self.nodes[prev_parent.get()].right = prev_left;
             } else {
-                self.nodes[prev_parent].left = prev_left;
+                self.nodes[prev_parent.get()].left = prev_left;
             }
-            self.nodes[prev_left].parent = prev_parent;
+            self.nodes[prev_left.get()].parent = prev_parent;
             self.update_subtree_interval(prev_parent);
         } else {
             self.root = prev_left;
-            self.nodes[prev_left].parent = UNDEFINED;
+            self.nodes[prev_left.get()].parent = Ix::UNDEFINED;
         }
     }
 
-    fn insert_repair(&mut self, mut index: usize) {
+    fn insert_repair(&mut self, mut index: Ix) {
         loop {
-            debug_assert!(self.nodes[index].is_red());
+            debug_assert!(self.nodes[index.get()].is_red());
             if index == self.root {
-                self.nodes[index].set_black();
+                self.nodes[index.get()].set_black();
                 return;
             }
 
             // parent should be defined
-            let parent = self.nodes[index].parent;
-            if self.nodes[parent].is_black() {
+            let parent = self.nodes[index.get()].parent;
+            if self.nodes[parent.get()].is_black() {
                 return;
             }
 
             // parent is red
             // grandparent should be defined
-            let grandparent = self.nodes[parent].parent;
+            let grandparent = self.nodes[parent.get()].parent;
             let uncle = self.sibling(parent);
 
-            if uncle != UNDEFINED && self.nodes[uncle].is_red() {
-                self.nodes[parent].set_black();
-                self.nodes[uncle].set_black();
-                self.nodes[grandparent].set_red();
+            if uncle.defined() && self.nodes[uncle.get()].is_red() {
+                self.nodes[parent.get()].set_black();
+                self.nodes[uncle.get()].set_black();
+                self.nodes[grandparent.get()].set_red();
                 index = grandparent;
                 continue;
             }
 
-            if index == self.nodes[parent].right && parent == self.nodes[grandparent].left {
+            if index == self.nodes[parent.get()].right && parent == self.nodes[grandparent.get()].left {
                 self.rotate_left(parent);
-                index = self.nodes[index].left;
-            } else if index == self.nodes[parent].left && parent == self.nodes[grandparent].right {
+                index = self.nodes[index.get()].left;
+            } else if index == self.nodes[parent.get()].left && parent == self.nodes[grandparent.get()].right {
                 self.rotate_right(parent);
-                index = self.nodes[index].right;
+                index = self.nodes[index.get()].right;
             }
 
-            let parent = self.nodes[index].parent;
-            let grandparent = self.nodes[parent].parent;
-            if index == self.nodes[parent].left {
+            let parent = self.nodes[index.get()].parent;
+            let grandparent = self.nodes[parent.get()].parent;
+            if index == self.nodes[parent.get()].left {
                 self.rotate_right(grandparent);
             } else {
                 self.rotate_left(grandparent);
             }
-            self.nodes[parent].set_black();
-            self.nodes[grandparent].set_red();
+            self.nodes[parent.get()].set_black();
+            self.nodes[grandparent.get()].set_red();
             return;
         }
     }
@@ -441,10 +450,10 @@ impl<T: PartialOrd + Copy, V> IntervalMap<T, V> {
     /// or contains a value that cannot be compared (such as `NAN`).
     pub fn insert(&mut self, interval: Range<T>, value: V) {
         check_interval(&interval.start, &interval.end);
-        let new_ind = self.nodes.len();
+        let new_ind = Ix::new(self.nodes.len()).unwrap();
         let mut new_node = Node::new(interval, value);
-        if self.root == UNDEFINED {
-            self.root = 0;
+        if !self.root.defined() {
+            self.root = Ix::new(0).unwrap();
             new_node.set_black();
             self.nodes.push(new_node);
             return;
@@ -452,13 +461,13 @@ impl<T: PartialOrd + Copy, V> IntervalMap<T, V> {
 
         let mut current = self.root;
         loop {
-            self.nodes[current].subtree_interval.extend(&new_node.interval);
-            let child = if new_node.interval <= self.nodes[current].interval {
-                &mut self.nodes[current].left
+            self.nodes[current.get()].subtree_interval.extend(&new_node.interval);
+            let child = if new_node.interval <= self.nodes[current.get()].interval {
+                &mut self.nodes[current.get()].left
             } else {
-                &mut self.nodes[current].right
+                &mut self.nodes[current.get()].right
             };
-            if *child == UNDEFINED {
+            if !child.defined() {
                 *child = new_ind;
                 new_node.parent = current;
                 break;
@@ -471,21 +480,21 @@ impl<T: PartialOrd + Copy, V> IntervalMap<T, V> {
     }
 
     #[allow(dead_code)]
-    fn change_index(&mut self, old: usize, new: usize) {
-        let left = self.nodes[old].left;
-        let right = self.nodes[old].right;
-        let parent = self.nodes[old].parent;
-        if left != UNDEFINED {
-            self.nodes[left].parent = new;
+    fn change_index(&mut self, old: Ix, new: Ix) {
+        let left = self.nodes[old.get()].left;
+        let right = self.nodes[old.get()].right;
+        let parent = self.nodes[old.get()].parent;
+        if left.defined() {
+            self.nodes[left.get()].parent = new;
         }
-        if right != UNDEFINED {
-            self.nodes[right].parent = new;
+        if right.defined() {
+            self.nodes[right.get()].parent = new;
         }
-        if parent != UNDEFINED {
-            if self.nodes[parent].left == old {
-                self.nodes[parent].left = new;
+        if parent.defined() {
+            if self.nodes[parent.get()].left == old {
+                self.nodes[parent.get()].left = new;
             } else {
-                self.nodes[parent].right = new;
+                self.nodes[parent.get()].right = new;
             }
         }
     }
@@ -519,68 +528,68 @@ impl<T: PartialOrd + Copy, V> IntervalMap<T, V> {
     /// Output is sorted by intervals, but not by values.
     ///
     /// Panics if `interval` is empty or contains a value that cannot be compared (such as `NAN`).
-    pub fn iter<'a, R: RangeBounds<T>>(&'a self, query: R) -> Iter<'a, T, V, R> {
+    pub fn iter<'a, R: RangeBounds<T>>(&'a self, query: R) -> Iter<'a, T, V, R, Ix> {
         Iter::new(self, query)
     }
 
     /// Iterates over intervals `x..y` that overlap the `query`.
     /// See [iter](#method.iter) for more details.
-    pub fn intervals<'a, R: RangeBounds<T>>(&'a self, query: R) -> Intervals<'a, T, V, R> {
+    pub fn intervals<'a, R: RangeBounds<T>>(&'a self, query: R) -> Intervals<'a, T, V, R, Ix> {
         Intervals::new(self, query)
     }
 
     /// Iterates over values that overlap the `query`.
     /// See [iter](#method.iter) for more details.
-    pub fn values<'a, R: RangeBounds<T>>(&'a self, query: R) -> Values<'a, T, V, R> {
+    pub fn values<'a, R: RangeBounds<T>>(&'a self, query: R) -> Values<'a, T, V, R, Ix> {
         Values::new(self, query)
     }
 
     /// Iterator over pairs `(x..y, &mut value)` that overlap the `query`.
     /// See [iter](#method.iter) for more details.
-    pub fn iter_mut<'a, R: RangeBounds<T>>(&'a mut self, query: R) -> IterMut<'a, T, V, R> {
+    pub fn iter_mut<'a, R: RangeBounds<T>>(&'a mut self, query: R) -> IterMut<'a, T, V, R, Ix> {
         IterMut::new(self, query)
     }
 
     /// Iterator over *mutable* values that overlap the `query`.
     /// See [iter](#method.iter) for more details.
-    pub fn values_mut<'a, R: RangeBounds<T>>(&'a mut self, query: R) -> ValuesMut<'a, T, V, R> {
+    pub fn values_mut<'a, R: RangeBounds<T>>(&'a mut self, query: R) -> ValuesMut<'a, T, V, R, Ix> {
         ValuesMut::new(self, query)
     }
 
     /// Consumes [IntervalMap](struct.IntervalMap.html) and
     /// iterates over pairs `(x..y, value)` that overlap the `query`.
     /// See [iter](#method.iter) for more details.
-    pub fn into_iter<R: RangeBounds<T>>(self, query: R) -> IntoIter<T, V, R> {
+    pub fn into_iter<R: RangeBounds<T>>(self, query: R) -> IntoIter<T, V, R, Ix> {
         IntoIter::new(self, query)
     }
 
     /// Iterates over pairs `(x..y, &value)` that overlap the `point`.
     /// See [iter](#method.iter) for more details.
-    pub fn overlap<'a>(&'a self, point: T) -> Iter<'a, T, V, RangeInclusive<T>> {
+    pub fn overlap<'a>(&'a self, point: T) -> Iter<'a, T, V, RangeInclusive<T>, Ix> {
         Iter::new(self, point..=point)
     }
 
     /// Iterates over intervals `x..y` that overlap the `point`.
     /// See [iter](#method.iter) for more details.
-    pub fn intervals_overlap<'a>(&'a self, point: T) -> Intervals<'a, T, V, RangeInclusive<T>> {
+    pub fn intervals_overlap<'a>(&'a self, point: T) -> Intervals<'a, T, V, RangeInclusive<T>, Ix> {
         Intervals::new(self, point..=point)
     }
 
     /// Iterates over values that overlap the `point`.
     /// See [iter](#method.iter) for more details.
-    pub fn values_overlap<'a>(&'a self, point: T) -> Values<'a, T, V, RangeInclusive<T>> {
+    pub fn values_overlap<'a>(&'a self, point: T) -> Values<'a, T, V, RangeInclusive<T>, Ix> {
         Values::new(self, point..=point)
     }
 
     /// Iterator over pairs `(x..y, &mut value)` that overlap the `point`.
     /// See [iter](#method.iter) for more details.
-    pub fn overlap_mut<'a>(&'a mut self, point: T) -> IterMut<'a, T, V, RangeInclusive<T>> {
+    pub fn overlap_mut<'a>(&'a mut self, point: T) -> IterMut<'a, T, V, RangeInclusive<T>, Ix> {
         IterMut::new(self, point..=point)
     }
 
     /// Iterates over *mutable* values that overlap the `point`.
     /// See [iter](#method.iter) for more details.
-    pub fn values_overlap_mut<'a>(&'a mut self, point: T) -> ValuesMut<'a, T, V, RangeInclusive<T>> {
+    pub fn values_overlap_mut<'a>(&'a mut self, point: T) -> ValuesMut<'a, T, V, RangeInclusive<T>, Ix> {
         ValuesMut::new(self, point..=point)
     }
 
@@ -588,57 +597,57 @@ impl<T: PartialOrd + Copy, V> IntervalMap<T, V> {
     /// Takes *O(log N)*. Returns `None` if the map is empty.
     pub fn smallest(&self) -> Option<(Range<T>, &V)> {
         let mut index = self.root;
-        if index == UNDEFINED {
+        if !index.defined() {
             return None;
         }
-        while self.nodes[index].left != UNDEFINED {
-            index = self.nodes[index].left;
+        while self.nodes[index.get()].left.defined() {
+            index = self.nodes[index.get()].left;
         }
-        Some((self.nodes[index].interval.to_range(), &self.nodes[index].value))
+        Some((self.nodes[index.get()].interval.to_range(), &self.nodes[index.get()].value))
     }
 
     /// Returns the pair `(x..y, &mut value)` with the smallest `x..y` (intervals are sorted lexicographically).
     /// Takes *O(log N)*. Returns `None` if the map is empty.
     pub fn smallest_mut(&mut self) -> Option<(Range<T>, &mut V)> {
         let mut index = self.root;
-        if index == UNDEFINED {
+        if !index.defined() {
             return None;
         }
-        while self.nodes[index].left != UNDEFINED {
-            index = self.nodes[index].left;
+        while self.nodes[index.get()].left.defined() {
+            index = self.nodes[index.get()].left;
         }
-        Some((self.nodes[index].interval.to_range(), &mut self.nodes[index].value))
+        Some((self.nodes[index.get()].interval.to_range(), &mut self.nodes[index.get()].value))
     }
 
     /// Returns the pair `(x..y, &value)` with the largest `x..y` (intervals are sorted lexicographically).
     /// Takes *O(log N)*. Returns `None` if the map is empty.
     pub fn largest(&self) -> Option<(Range<T>, &V)> {
         let mut index = self.root;
-        if index == UNDEFINED {
+        if !index.defined() {
             return None;
         }
-        while self.nodes[index].right != UNDEFINED {
-            index = self.nodes[index].right;
+        while self.nodes[index.get()].right.defined() {
+            index = self.nodes[index.get()].right;
         }
-        Some((self.nodes[index].interval.to_range(), &self.nodes[index].value))
+        Some((self.nodes[index.get()].interval.to_range(), &self.nodes[index.get()].value))
     }
 
     /// Returns the pair `(x..y, &mut value)` with the largest `x..y` (intervals are sorted lexicographically).
     /// Takes *O(log N)*. Returns `None` if the map is empty.
     pub fn largest_mut(&mut self) -> Option<(Range<T>, &mut V)> {
         let mut index = self.root;
-        if index == UNDEFINED {
+        if !index.defined() {
             return None;
         }
-        while self.nodes[index].right != UNDEFINED {
-            index = self.nodes[index].right;
+        while self.nodes[index.get()].right.defined() {
+            index = self.nodes[index.get()].right;
         }
-        Some((self.nodes[index].interval.to_range(), &mut self.nodes[index].value))
+        Some((self.nodes[index.get()].interval.to_range(), &mut self.nodes[index.get()].value))
     }
 }
 
-impl<T: PartialOrd + Copy, V> std::iter::IntoIterator for IntervalMap<T, V> {
-    type IntoIter = IntoIter<T, V, RangeFull>;
+impl<T: PartialOrd + Copy, V, Ix: NodeIndex> std::iter::IntoIterator for IntervalMap<T, V, Ix> {
+    type IntoIter = IntoIter<T, V, RangeFull, Ix>;
     type Item = (Range<T>, V);
 
     fn into_iter(self) -> Self::IntoIter {
@@ -657,18 +666,18 @@ impl<T: PartialOrd + Copy, V> std::iter::FromIterator<(Range<T>, V)> for Interva
     }
 }
 
-impl<T: PartialOrd + Copy + Display, V: Display> IntervalMap<T, V> {
+impl<T: PartialOrd + Copy + Display, V: Display, Ix: NodeIndex> IntervalMap<T, V, Ix> {
     /// Write dot file to `writer`. `T` and `V` should implement `Display`.
     pub fn write_dot<W: Write>(&self, mut writer: W) -> io::Result<()> {
         writeln!(writer, "digraph {{")?;
         for i in 0..self.nodes.len() {
-            self.nodes[i].write_dot(i, &mut writer)?;
+            self.nodes[i].write_dot(Ix::new(i).unwrap(), &mut writer)?;
         }
         writeln!(writer, "}}")
     }
 }
 
-impl<T: PartialOrd + Copy + Debug, V: Debug> Debug for IntervalMap<T, V> {
+impl<T: PartialOrd + Copy + Debug, V: Debug, Ix: NodeIndex> Debug for IntervalMap<T, V, Ix> {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         write!(f, "{{")?;
         let mut need_comma = false;
@@ -734,8 +743,8 @@ impl<T: PartialOrd + Copy + Debug, V: Debug> Debug for IntervalMap<T, V> {
 /// assert_eq!(a, &[50..150, 100..210]);
 /// ```
 #[derive(Clone)]
-pub struct IntervalSet<T: PartialOrd + Copy> {
-    inner: IntervalMap<T, ()>,
+pub struct IntervalSet<T: PartialOrd + Copy, Ix: NodeIndex = DefaultIx> {
+    inner: IntervalMap<T, (), Ix>,
 }
 
 impl<T: PartialOrd + Copy> IntervalSet<T> {
@@ -745,7 +754,9 @@ impl<T: PartialOrd + Copy> IntervalSet<T> {
             inner: IntervalMap::new(),
         }
     }
+}
 
+impl<T: PartialOrd + Copy, Ix: NodeIndex> IntervalSet<T, Ix> {
     /// Creates an empty [IntervalSet](struct.IntervalSet.html) with `capacity`.
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
@@ -772,13 +783,13 @@ impl<T: PartialOrd + Copy> IntervalSet<T> {
     /// Output is sorted by intervals.
     ///
     /// Panics if `interval` is empty or contains a value that cannot be compared (such as `NAN`).
-    pub fn iter<'a, R: RangeBounds<T>>(&'a self, query: R) -> Intervals<'a, T, (), R> {
+    pub fn iter<'a, R: RangeBounds<T>>(&'a self, query: R) -> Intervals<'a, T, (), R, Ix> {
         self.inner.intervals(query)
     }
 
     /// Iterates over intervals `x..y` that overlap the `point`. Same as `iter(point..=point)`.
     /// See [iter](#method.iter) for more details.
-    pub fn overlap<'a>(&'a self, point: T) -> Intervals<'a, T, (), RangeInclusive<T>> {
+    pub fn overlap<'a>(&'a self, point: T) -> Intervals<'a, T, (), RangeInclusive<T>, Ix> {
         self.inner.intervals(point..=point)
     }
 
@@ -795,8 +806,8 @@ impl<T: PartialOrd + Copy> IntervalSet<T> {
     }
 }
 
-impl<T: PartialOrd + Copy> std::iter::IntoIterator for IntervalSet<T> {
-    type IntoIter = IntoIterSet<T>;
+impl<T: PartialOrd + Copy, Ix: NodeIndex> std::iter::IntoIterator for IntervalSet<T, Ix> {
+    type IntoIter = IntoIterSet<T, Ix>;
     type Item = Range<T>;
 
     fn into_iter(self) -> Self::IntoIter {
@@ -815,7 +826,7 @@ impl<T: PartialOrd + Copy> std::iter::FromIterator<Range<T>> for IntervalSet<T> 
     }
 }
 
-impl<T: PartialOrd + Copy + Debug> Debug for IntervalSet<T> {
+impl<T: PartialOrd + Copy + Debug, Ix: NodeIndex> Debug for IntervalSet<T, Ix> {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         write!(f, "{{")?;
         let mut need_comma = false;

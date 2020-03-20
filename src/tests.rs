@@ -9,28 +9,30 @@ use bit_vec::BitVec;
 use super::*;
 
 /// Returns distance to leaves (only black nodes).
-fn check_tree_recursive<T, V>(tree: &IntervalMap<T, V>, index: usize, upper_interval: &mut Interval<T>,
+fn check_tree_recursive<T, V, Ix>(tree: &IntervalMap<T, V, Ix>, index: Ix, upper_interval: &mut Interval<T>,
     visited: &mut BitVec) -> u32
-where T: PartialOrd + Copy {
-    assert!(!visited[index], "The tree contains a cycle: node {} was visited twice", index);
-    visited.set(index, true);
+where T: PartialOrd + Copy,
+      Ix: NodeIndex,
+{
+    assert!(!visited[index.get()], "The tree contains a cycle: node {} was visited twice", index);
+    visited.set(index.get(), true);
 
-    let node = &tree.nodes[index];
+    let node = &tree.nodes[index.get()];
     let mut down_interval = node.interval.clone();
     let left = node.left;
     let right = node.right;
 
-    let left_depth = if left != UNDEFINED {
+    let left_depth = if left.defined() {
         if node.is_red() {
-            assert!(tree.nodes[left].is_black(), "Red node {} has a red child {}", index, left);
+            assert!(tree.nodes[left.get()].is_black(), "Red node {} has a red child {}", index, left);
         }
         Some(check_tree_recursive(tree, left, &mut down_interval, visited))
     } else {
         None
     };
-    let right_depth = if right != UNDEFINED {
+    let right_depth = if right.defined() {
         if node.is_red() {
-            assert!(tree.nodes[right].is_black(), "Red node {} has a red child {}", index, right);
+            assert!(tree.nodes[right.get()].is_black(), "Red node {} has a red child {}", index, right);
         }
         Some(check_tree_recursive(tree, right, &mut down_interval, visited))
     } else {
@@ -51,20 +53,20 @@ where T: PartialOrd + Copy {
     }
 }
 
-fn check<T: PartialOrd + Copy, V>(tree: &IntervalMap<T, V>) {
-    if tree.root == UNDEFINED {
+fn check<T: PartialOrd + Copy, V, Ix: NodeIndex>(tree: &IntervalMap<T, V, Ix>) {
+    if !tree.root.defined() {
         assert!(tree.nodes.is_empty(), "Non empty nodes with an empty root");
         return;
     }
     for i in 0..tree.nodes.len() {
-        if i == tree.root {
-            assert!(tree.nodes[i].parent == UNDEFINED, "Root {} has a parent {}", i, tree.nodes[i].parent);
+        if i == tree.root.get() {
+            assert!(!tree.nodes[i].parent.defined(), "Root {} has a parent {}", i, tree.nodes[i].parent);
         } else {
-            assert!(tree.nodes[i].parent != UNDEFINED, "Non-root {} has an empty parent (root is {})", i, tree.root);
+            assert!(tree.nodes[i].parent.defined(), "Non-root {} has an empty parent (root is {})", i, tree.root);
         }
     }
 
-    let node = &tree.nodes[tree.root];
+    let node = &tree.nodes[tree.root.get()];
     let mut interval = node.interval.clone();
     let mut visited = BitVec::from_elem(tree.nodes.len(), false);
     check_tree_recursive(tree, tree.root, &mut interval, &mut visited);

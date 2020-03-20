@@ -4,7 +4,7 @@ use std::iter::FusedIterator;
 use std::mem;
 use bit_vec::BitVec;
 
-use super::{IntervalMap, Node, UNDEFINED, check_interval, check_interval_incl};
+use super::{IntervalMap, Node, NodeIndex, check_interval, check_interval_incl};
 
 fn check_ordered<T: PartialOrd, R: RangeBounds<T>>(range: &R) {
     match (range.start_bound(), range.end_bound()) {
@@ -16,22 +16,28 @@ fn check_ordered<T: PartialOrd, R: RangeBounds<T>>(range: &R) {
     }
 }
 
-fn should_go_left<T: PartialOrd + Copy, V>(nodes: &[Node<T, V>], index: usize, start_bound: Bound<&T>) -> bool {
-    if nodes[index].left == UNDEFINED {
+fn should_go_left<T, V, Ix>(nodes: &[Node<T, V, Ix>], index: Ix, start_bound: Bound<&T>) -> bool
+where T: PartialOrd + Copy,
+      Ix: NodeIndex,
+{
+    if !nodes[index.get()].left.defined() {
         return false;
     }
-    let left_end = nodes[nodes[index].left].subtree_interval.end;
+    let left_end = nodes[nodes[index.get()].left.get()].subtree_interval.end;
     match start_bound {
         Bound::Included(value) | Bound::Excluded(value) => left_end >= *value,
         Bound::Unbounded => true,
     }
 }
 
-fn should_go_right<T: PartialOrd + Copy, V>(nodes: &[Node<T, V>], index: usize, end_bound: Bound<&T>) -> bool {
-    if nodes[index].right == UNDEFINED {
+fn should_go_right<T, V, Ix>(nodes: &[Node<T, V, Ix>], index: Ix, end_bound: Bound<&T>) -> bool
+where T: PartialOrd + Copy,
+      Ix: NodeIndex,
+{
+    if !nodes[index.get()].right.defined() {
         return false;
     }
-    let right_start = nodes[nodes[index].right].subtree_interval.start;
+    let right_start = nodes[nodes[index.get()].right.get()].subtree_interval.start;
     match end_bound {
         Bound::Included(value) => right_start <= *value,
         Bound::Excluded(value) => right_start < *value,
@@ -97,23 +103,24 @@ impl ActionStack {
     }
 }
 
-fn move_to_next<T, V, R>(nodes: &[Node<T, V>], mut index: usize, range: &R, stack: &mut ActionStack) -> usize
+fn move_to_next<T, V, R, Ix>(nodes: &[Node<T, V, Ix>], mut index: Ix, range: &R, stack: &mut ActionStack) -> Ix
 where T: PartialOrd + Copy,
       R: RangeBounds<T>,
+      Ix: NodeIndex,
 {
-    while index != UNDEFINED {
+    while index.defined() {
         if stack.can_go_left() {
             while should_go_left(nodes, index, range.start_bound()) {
                 stack.go_left();
                 stack.push();
-                index = nodes[index].left;
+                index = nodes[index.get()].left;
             }
             stack.go_left();
         }
 
         if stack.can_match() {
             stack.make_match();
-            if nodes[index].interval.intersects_range(range) {
+            if nodes[index.get()].interval.intersects_range(range) {
                 return index;
             }
         }
@@ -121,10 +128,10 @@ where T: PartialOrd + Copy,
         if stack.can_go_right() && should_go_right(nodes, index, range.end_bound()) {
             stack.go_right();
             stack.push();
-            index = nodes[index].right;
+            index = nodes[index.get()].right;
         } else {
             stack.pop();
-            index = nodes[index].parent;
+            index = nodes[index.get()].parent;
         }
     }
     index
@@ -138,15 +145,15 @@ macro_rules! iterator {
         $self:ident -> $out:expr, {$( $mut_:tt )*}
     ) => {
         $(#[$outer])*
-        pub struct $name<'a, T: PartialOrd + Copy, V, R: RangeBounds<T>> {
-            index: usize,
+        pub struct $name<'a, T: PartialOrd + Copy, V, R: RangeBounds<T>, Ix: NodeIndex> {
+            index: Ix,
             range: R,
-            nodes: &'a $( $mut_ )* [Node<T, V>],
+            nodes: &'a $( $mut_ )* [Node<T, V, Ix>],
             stack: ActionStack,
         }
 
-        impl<'a, T: PartialOrd + Copy, V, R: RangeBounds<T>> $name<'a, T, V, R> {
-            pub(crate) fn new(tree: &'a $( $mut_ )* IntervalMap<T, V>, range: R) -> Self {
+        impl<'a, T: PartialOrd + Copy, V, R: RangeBounds<T>, Ix: NodeIndex> $name<'a, T, V, R, Ix> {
+            pub(crate) fn new(tree: &'a $( $mut_ )* IntervalMap<T, V, Ix>, range: R) -> Self {
                 check_ordered(&range);
                 Self {
                     index: tree.root,
@@ -157,12 +164,12 @@ macro_rules! iterator {
             }
         }
 
-        impl<'a, T: PartialOrd + Copy, V, R: RangeBounds<T>> Iterator for $name<'a, T, V, R> {
+        impl<'a, T: PartialOrd + Copy, V, R: RangeBounds<T>, Ix: NodeIndex> Iterator for $name<'a, T, V, R, Ix> {
             type Item = $item;
 
             fn next(&mut $self) -> Option<Self::Item> {
                 $self.index = move_to_next($self.nodes, $self.index, &$self.range, &mut $self.stack);
-                if $self.index == UNDEFINED {
+                if !$self.index.defined() {
                     None
                 } else {
                     Some($out)
@@ -170,51 +177,51 @@ macro_rules! iterator {
             }
         }
 
-        impl<'a, T: PartialOrd + Copy, V, R: RangeBounds<T>> FusedIterator for $name<'a, T, V, R> { }
+        impl<'a, T: PartialOrd + Copy, V, R: RangeBounds<T>, Ix: NodeIndex> FusedIterator for $name<'a, T, V, R, Ix> { }
     };
 }
 
 iterator! {
     #[doc="Iterator over pairs `(x..y, &value)`."]
     struct Iter -> (Range<T>, &'a V),
-    self -> (self.nodes[self.index].interval.to_range(), &self.nodes[self.index].value), { /* no mut */ }
+    self -> (self.nodes[self.index.get()].interval.to_range(), &self.nodes[self.index.get()].value), { /* no mut */ }
 }
 
 iterator! {
     #[doc="Iterator over intervals `x..y`."]
     struct Intervals -> Range<T>,
-    self -> self.nodes[self.index].interval.to_range(), { /* no mut */ }
+    self -> self.nodes[self.index.get()].interval.to_range(), { /* no mut */ }
 }
 
 iterator! {
     #[doc="Iterator over values."]
     struct Values -> &'a V,
-    self -> &self.nodes[self.index].value, { /* no mut */ }
+    self -> &self.nodes[self.index.get()].value, { /* no mut */ }
 }
 
 iterator! {
     #[doc="Iterator over pairs `(x..y, &mut value)`."]
     struct IterMut -> (Range<T>, &'a mut V),
-    self -> (self.nodes[self.index].interval.to_range(),
-        unsafe { &mut *(&mut self.nodes[self.index].value as *mut V) }), { mut }
+    self -> (self.nodes[self.index.get()].interval.to_range(),
+        unsafe { &mut *(&mut self.nodes[self.index.get()].value as *mut V) }), { mut }
 }
 
 iterator! {
     #[doc="Iterator over mutable values."]
     struct ValuesMut -> &'a mut V,
-    self -> unsafe { &mut *(&mut self.nodes[self.index].value as *mut V) }, { mut }
+    self -> unsafe { &mut *(&mut self.nodes[self.index.get()].value as *mut V) }, { mut }
 }
 
 /// Iterator over pairs `(x..y, value)`. Takes ownership of `IntervalMap`.
-pub struct IntoIter<T: PartialOrd + Copy, V, R: RangeBounds<T>> {
-    index: usize,
+pub struct IntoIter<T: PartialOrd + Copy, V, R: RangeBounds<T>, Ix: NodeIndex> {
+    index: Ix,
     range: R,
-    nodes: Vec<Node<T, V>>,
+    nodes: Vec<Node<T, V, Ix>>,
     stack: ActionStack,
 }
 
-impl<T: PartialOrd + Copy, V, R: RangeBounds<T>> IntoIter<T, V, R> {
-    pub(crate) fn new(tree: IntervalMap<T, V>, range: R) -> Self {
+impl<T: PartialOrd + Copy, V, R: RangeBounds<T>, Ix: NodeIndex> IntoIter<T, V, R, Ix> {
+    pub(crate) fn new(tree: IntervalMap<T, V, Ix>, range: R) -> Self {
         check_ordered(&range);
         let index = tree.root;
         Self {
@@ -226,37 +233,37 @@ impl<T: PartialOrd + Copy, V, R: RangeBounds<T>> IntoIter<T, V, R> {
     }
 }
 
-impl<T: PartialOrd + Copy, V, R: RangeBounds<T>> Iterator for IntoIter<T, V, R> {
+impl<T: PartialOrd + Copy, V, R: RangeBounds<T>, Ix: NodeIndex> Iterator for IntoIter<T, V, R, Ix> {
     type Item = (Range<T>, V);
 
     fn next(&mut self) -> Option<Self::Item> {
         self.index = move_to_next(&self.nodes, self.index, &self.range, &mut self.stack);
-        if self.index == UNDEFINED {
+        if !self.index.defined() {
             None
         } else {
             // Replace value with zeroed value, it must not be accessed anymore.
-            let value = mem::replace(&mut self.nodes[self.index].value, unsafe { mem::zeroed() });
-            Some((self.nodes[self.index].interval.to_range(), value))
+            let value = mem::replace(&mut self.nodes[self.index.get()].value, unsafe { mem::zeroed() });
+            Some((self.nodes[self.index.get()].interval.to_range(), value))
         }
     }
 }
 
-impl<T: PartialOrd + Copy, V, R: RangeBounds<T>> FusedIterator for IntoIter<T, V, R> { }
+impl<T: PartialOrd + Copy, V, R: RangeBounds<T>, Ix: NodeIndex> FusedIterator for IntoIter<T, V, R, Ix> { }
 
 /// Iterator over pairs `x..y`. Takes ownership of `IntervalSet`.
-pub struct IntoIterSet<T: PartialOrd + Copy> {
-    inner: IntoIter<T, (), RangeFull>,
+pub struct IntoIterSet<T: PartialOrd + Copy, Ix: NodeIndex> {
+    inner: IntoIter<T, (), RangeFull, Ix>,
 }
 
-impl<T: PartialOrd + Copy> IntoIterSet<T> {
-    pub(crate) fn new(tree: IntervalMap<T, ()>) -> Self {
+impl<T: PartialOrd + Copy, Ix: NodeIndex> IntoIterSet<T, Ix> {
+    pub(crate) fn new(tree: IntervalMap<T, (), Ix>) -> Self {
         Self {
             inner: IntoIter::new(tree, ..),
         }
     }
 }
 
-impl<T: PartialOrd + Copy> Iterator for IntoIterSet<T> {
+impl<T: PartialOrd + Copy, Ix: NodeIndex> Iterator for IntoIterSet<T, Ix> {
     type Item = Range<T>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -264,4 +271,4 @@ impl<T: PartialOrd + Copy> Iterator for IntoIterSet<T> {
     }
 }
 
-impl<T: PartialOrd + Copy> FusedIterator for IntoIterSet<T> { }
+impl<T: PartialOrd + Copy, Ix: NodeIndex> FusedIterator for IntoIterSet<T, Ix> { }

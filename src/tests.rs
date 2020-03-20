@@ -12,7 +12,7 @@ use super::*;
 fn check_tree_recursive<T, V, Ix>(tree: &IntervalMap<T, V, Ix>, index: Ix, upper_interval: &mut Interval<T>,
     visited: &mut BitVec) -> u32
 where T: PartialOrd + Copy,
-      Ix: NodeIndex,
+      Ix: IndexType,
 {
     assert!(!visited[index.get()], "The tree contains a cycle: node {} was visited twice", index);
     visited.set(index.get(), true);
@@ -53,7 +53,7 @@ where T: PartialOrd + Copy,
     }
 }
 
-fn check<T: PartialOrd + Copy, V, Ix: NodeIndex>(tree: &IntervalMap<T, V, Ix>) {
+fn check<T: PartialOrd + Copy, V, Ix: IndexType>(tree: &IntervalMap<T, V, Ix>) {
     if !tree.root.defined() {
         assert!(tree.nodes.is_empty(), "Non empty nodes with an empty root");
         return;

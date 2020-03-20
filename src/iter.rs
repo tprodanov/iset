@@ -4,7 +4,7 @@ use std::iter::FusedIterator;
 use std::mem;
 use bit_vec::BitVec;
 
-use super::{IntervalMap, Node, NodeIndex, check_interval, check_interval_incl};
+use super::{IntervalMap, Node, IndexType, check_interval, check_interval_incl};
 
 fn check_ordered<T: PartialOrd, R: RangeBounds<T>>(range: &R) {
     match (range.start_bound(), range.end_bound()) {
@@ -18,7 +18,7 @@ fn check_ordered<T: PartialOrd, R: RangeBounds<T>>(range: &R) {
 
 fn should_go_left<T, V, Ix>(nodes: &[Node<T, V, Ix>], index: Ix, start_bound: Bound<&T>) -> bool
 where T: PartialOrd + Copy,
-      Ix: NodeIndex,
+      Ix: IndexType,
 {
     if !nodes[index.get()].left.defined() {
         return false;
@@ -32,7 +32,7 @@ where T: PartialOrd + Copy,
 
 fn should_go_right<T, V, Ix>(nodes: &[Node<T, V, Ix>], index: Ix, end_bound: Bound<&T>) -> bool
 where T: PartialOrd + Copy,
-      Ix: NodeIndex,
+      Ix: IndexType,
 {
     if !nodes[index.get()].right.defined() {
         return false;
@@ -106,7 +106,7 @@ impl ActionStack {
 fn move_to_next<T, V, R, Ix>(nodes: &[Node<T, V, Ix>], mut index: Ix, range: &R, stack: &mut ActionStack) -> Ix
 where T: PartialOrd + Copy,
       R: RangeBounds<T>,
-      Ix: NodeIndex,
+      Ix: IndexType,
 {
     while index.defined() {
         if stack.can_go_left() {
@@ -145,14 +145,14 @@ macro_rules! iterator {
         $self:ident -> $out:expr, {$( $mut_:tt )*}
     ) => {
         $(#[$outer])*
-        pub struct $name<'a, T: PartialOrd + Copy, V, R: RangeBounds<T>, Ix: NodeIndex> {
+        pub struct $name<'a, T: PartialOrd + Copy, V, R: RangeBounds<T>, Ix: IndexType> {
             index: Ix,
             range: R,
             nodes: &'a $( $mut_ )* [Node<T, V, Ix>],
             stack: ActionStack,
         }
 
-        impl<'a, T: PartialOrd + Copy, V, R: RangeBounds<T>, Ix: NodeIndex> $name<'a, T, V, R, Ix> {
+        impl<'a, T: PartialOrd + Copy, V, R: RangeBounds<T>, Ix: IndexType> $name<'a, T, V, R, Ix> {
             pub(crate) fn new(tree: &'a $( $mut_ )* IntervalMap<T, V, Ix>, range: R) -> Self {
                 check_ordered(&range);
                 Self {
@@ -164,7 +164,7 @@ macro_rules! iterator {
             }
         }
 
-        impl<'a, T: PartialOrd + Copy, V, R: RangeBounds<T>, Ix: NodeIndex> Iterator for $name<'a, T, V, R, Ix> {
+        impl<'a, T: PartialOrd + Copy, V, R: RangeBounds<T>, Ix: IndexType> Iterator for $name<'a, T, V, R, Ix> {
             type Item = $item;
 
             fn next(&mut $self) -> Option<Self::Item> {
@@ -177,7 +177,7 @@ macro_rules! iterator {
             }
         }
 
-        impl<'a, T: PartialOrd + Copy, V, R: RangeBounds<T>, Ix: NodeIndex> FusedIterator for $name<'a, T, V, R, Ix> { }
+        impl<'a, T: PartialOrd + Copy, V, R: RangeBounds<T>, Ix: IndexType> FusedIterator for $name<'a, T, V, R, Ix> { }
     };
 }
 
@@ -213,14 +213,14 @@ iterator! {
 }
 
 /// Iterator over pairs `(x..y, value)`. Takes ownership of `IntervalMap`.
-pub struct IntoIter<T: PartialOrd + Copy, V, R: RangeBounds<T>, Ix: NodeIndex> {
+pub struct IntoIter<T: PartialOrd + Copy, V, R: RangeBounds<T>, Ix: IndexType> {
     index: Ix,
     range: R,
     nodes: Vec<Node<T, V, Ix>>,
     stack: ActionStack,
 }
 
-impl<T: PartialOrd + Copy, V, R: RangeBounds<T>, Ix: NodeIndex> IntoIter<T, V, R, Ix> {
+impl<T: PartialOrd + Copy, V, R: RangeBounds<T>, Ix: IndexType> IntoIter<T, V, R, Ix> {
     pub(crate) fn new(tree: IntervalMap<T, V, Ix>, range: R) -> Self {
         check_ordered(&range);
         let index = tree.root;
@@ -233,7 +233,7 @@ impl<T: PartialOrd + Copy, V, R: RangeBounds<T>, Ix: NodeIndex> IntoIter<T, V, R
     }
 }
 
-impl<T: PartialOrd + Copy, V, R: RangeBounds<T>, Ix: NodeIndex> Iterator for IntoIter<T, V, R, Ix> {
+impl<T: PartialOrd + Copy, V, R: RangeBounds<T>, Ix: IndexType> Iterator for IntoIter<T, V, R, Ix> {
     type Item = (Range<T>, V);
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -248,14 +248,14 @@ impl<T: PartialOrd + Copy, V, R: RangeBounds<T>, Ix: NodeIndex> Iterator for Int
     }
 }
 
-impl<T: PartialOrd + Copy, V, R: RangeBounds<T>, Ix: NodeIndex> FusedIterator for IntoIter<T, V, R, Ix> { }
+impl<T: PartialOrd + Copy, V, R: RangeBounds<T>, Ix: IndexType> FusedIterator for IntoIter<T, V, R, Ix> { }
 
 /// Iterator over pairs `x..y`. Takes ownership of `IntervalSet`.
-pub struct IntoIterSet<T: PartialOrd + Copy, Ix: NodeIndex> {
+pub struct IntoIterSet<T: PartialOrd + Copy, Ix: IndexType> {
     inner: IntoIter<T, (), RangeFull, Ix>,
 }
 
-impl<T: PartialOrd + Copy, Ix: NodeIndex> IntoIterSet<T, Ix> {
+impl<T: PartialOrd + Copy, Ix: IndexType> IntoIterSet<T, Ix> {
     pub(crate) fn new(tree: IntervalMap<T, (), Ix>) -> Self {
         Self {
             inner: IntoIter::new(tree, ..),
@@ -263,7 +263,7 @@ impl<T: PartialOrd + Copy, Ix: NodeIndex> IntoIterSet<T, Ix> {
     }
 }
 
-impl<T: PartialOrd + Copy, Ix: NodeIndex> Iterator for IntoIterSet<T, Ix> {
+impl<T: PartialOrd + Copy, Ix: IndexType> Iterator for IntoIterSet<T, Ix> {
     type Item = Range<T>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -271,4 +271,4 @@ impl<T: PartialOrd + Copy, Ix: NodeIndex> Iterator for IntoIterSet<T, Ix> {
     }
 }
 
-impl<T: PartialOrd + Copy, Ix: NodeIndex> FusedIterator for IntoIterSet<T, Ix> { }
+impl<T: PartialOrd + Copy, Ix: IndexType> FusedIterator for IntoIterSet<T, Ix> { }

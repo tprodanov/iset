@@ -80,77 +80,67 @@ impl<T: PartialOrd + Copy> Interval<T> {
     }
 }
 
-pub trait NodeIndex: Copy + Display + Sized + Eq {
+pub trait IndexType: Copy + Display + Sized + Eq {
     #[doc(hidden)]
     const UNDEFINED: Self;
 
     #[doc(hidden)]
-    fn get(&self) -> usize;
+    fn get(self) -> usize;
 
     /// Returns error if the `elemen_num` is too big.
     #[doc(hidden)]
     fn new(element_num: usize) -> Result<Self, &'static str>;
 
     #[doc(hidden)]
-    #[inline]
+    #[inline(always)]
     fn defined(self) -> bool {
         self != Self::UNDEFINED
     }
 }
 
 macro_rules! index_error {
-    (U32) => {
-        "Failed to insert a new element into IntervalMap/Set. Try using indices iset::U64 instead of iset::U32."
+    (u64) => {
+        "Failed to insert a new element into IntervalMap/Set: number of elements is too large for u64."
     };
     ($name:ident) => {
-        concat!("Failed to insert a new element into IntervalMap/Set: number of elements is too large for iset::",
-            stringify!($name))
+        concat!(
+            "Failed to insert a new element into IntervalMap/Set: number of elements is too large for ",
+            stringify!($name),
+            ", try using u64.")
     };
 }
 
-macro_rules! index_type {
-    (
-        $(#[$outer:meta])*
-        struct $name:ident($type:ident)
-    ) => {
-        $(#[$outer])*
-        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-        pub struct $name($type);
+macro_rules! impl_index {
+    ($type:ident) => {
+        impl IndexType for $type {
+            const UNDEFINED: Self = std::$type::MAX;
 
-        impl Display for $name {
-            fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-                write!(f, "{}", self.0)
-            }
-        }
-
-        impl NodeIndex for $name {
-            const UNDEFINED: Self = $name(std::$type::MAX);
-
-            #[inline]
-            fn get(&self) -> usize {
-                self.0 as usize
+            #[inline(always)]
+            fn get(self) -> usize {
+                self as usize
             }
 
             #[inline]
             fn new(element_num: usize) -> Result<Self, &'static str> {
                 let element_num = element_num as $type;
                 if element_num == std::$type::MAX {
-                    Err(index_error!($name))
+                    Err(index_error!($type))
                 } else {
-                    Ok($name(element_num))
+                    Ok(element_num as $type)
                 }
             }
         }
     };
 }
 
-index_type!{ struct U16(u16) }
-index_type!{ struct U32(u32) }
-index_type!{ struct U64(u64) }
-pub type DefaultIx = U32;
+impl_index!(u16);
+impl_index!(u32);
+impl_index!(u64);
+impl_index!(u128);
+pub type DefaultIx = u32;
 
 #[derive(Debug, Clone)]
-struct Node<T: PartialOrd + Copy, V, Ix: NodeIndex> {
+struct Node<T: PartialOrd + Copy, V, Ix: IndexType> {
     interval: Interval<T>,
     subtree_interval: Interval<T>,
     value: V,
@@ -160,7 +150,7 @@ struct Node<T: PartialOrd + Copy, V, Ix: NodeIndex> {
     red_color: bool,
 }
 
-impl<T: PartialOrd + Copy, V, Ix: NodeIndex> Node<T, V, Ix> {
+impl<T: PartialOrd + Copy, V, Ix: IndexType> Node<T, V, Ix> {
     fn new(range: Range<T>, value: V) -> Self {
         Node {
             interval: Interval::new(&range),
@@ -173,28 +163,28 @@ impl<T: PartialOrd + Copy, V, Ix: NodeIndex> Node<T, V, Ix> {
         }
     }
 
-    #[inline]
+    #[inline(always)]
     fn is_red(&self) -> bool {
         self.red_color
     }
 
-    #[inline]
+    #[inline(always)]
     fn is_black(&self) -> bool {
         !self.red_color
     }
 
-    #[inline]
+    #[inline(always)]
     fn set_red(&mut self) {
         self.red_color = true;
     }
 
-    #[inline]
+    #[inline(always)]
     fn set_black(&mut self) {
         self.red_color = false;
     }
 }
 
-impl<T: PartialOrd + Copy + Display, V: Display, Ix: NodeIndex> Node<T, V, Ix> {
+impl<T: PartialOrd + Copy + Display, V: Display, Ix: IndexType> Node<T, V, Ix> {
     fn write_dot<W: Write>(&self, index: Ix, mut writer: W) -> io::Result<()> {
         writeln!(writer, "    {} [label=\"i={}\\n{}: {}\\n{}\", fillcolor={}, style=filled]",
             index, index, self.interval, self.value, self.subtree_interval,
@@ -282,7 +272,7 @@ fn check_interval_incl<T: PartialOrd>(start: &T, end: &T) {
 /// assert_eq!(a, &[(-5..20, &"c"), (0..10, &"a"), (5..15, &"b")]);
 /// ```
 #[derive(Clone)]
-pub struct IntervalMap<T: PartialOrd + Copy, V, Ix: NodeIndex = DefaultIx> {
+pub struct IntervalMap<T: PartialOrd + Copy, V, Ix: IndexType = DefaultIx> {
     nodes: Vec<Node<T, V, Ix>>,
     root: Ix,
 }
@@ -290,14 +280,23 @@ pub struct IntervalMap<T: PartialOrd + Copy, V, Ix: NodeIndex = DefaultIx> {
 impl<T: PartialOrd + Copy, V> IntervalMap<T, V> {
     /// Creates an empty [IntervalMap](struct.IntervalMap.html).
     pub fn new() -> Self {
-        IntervalMap {
+        Self {
             nodes: Vec::new(),
             root: DefaultIx::UNDEFINED,
         }
     }
 }
 
-impl<T: PartialOrd + Copy, V, Ix: NodeIndex> IntervalMap<T, V, Ix> {
+impl<T: PartialOrd + Copy, V, Ix: IndexType> Default for IntervalMap<T, V, Ix> {
+    fn default() -> Self {
+        Self {
+            nodes: Vec::new(),
+            root: Ix::UNDEFINED,
+        }
+    }
+}
+
+impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
     /// Creates an empty [IntervalMap](struct.IntervalMap.html) with `capacity`.
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
@@ -450,7 +449,7 @@ impl<T: PartialOrd + Copy, V, Ix: NodeIndex> IntervalMap<T, V, Ix> {
     /// or contains a value that cannot be compared (such as `NAN`).
     pub fn insert(&mut self, interval: Range<T>, value: V) {
         check_interval(&interval.start, &interval.end);
-        let new_ind = Ix::new(self.nodes.len()).unwrap();
+        let new_ind = Ix::new(self.nodes.len()).unwrap_or_else(|e| panic!("{}", e));
         let mut new_node = Node::new(interval, value);
         if !self.root.defined() {
             self.root = Ix::new(0).unwrap();
@@ -646,7 +645,7 @@ impl<T: PartialOrd + Copy, V, Ix: NodeIndex> IntervalMap<T, V, Ix> {
     }
 }
 
-impl<T: PartialOrd + Copy, V, Ix: NodeIndex> std::iter::IntoIterator for IntervalMap<T, V, Ix> {
+impl<T: PartialOrd + Copy, V, Ix: IndexType> std::iter::IntoIterator for IntervalMap<T, V, Ix> {
     type IntoIter = IntoIter<T, V, RangeFull, Ix>;
     type Item = (Range<T>, V);
 
@@ -666,7 +665,7 @@ impl<T: PartialOrd + Copy, V> std::iter::FromIterator<(Range<T>, V)> for Interva
     }
 }
 
-impl<T: PartialOrd + Copy + Display, V: Display, Ix: NodeIndex> IntervalMap<T, V, Ix> {
+impl<T: PartialOrd + Copy + Display, V: Display, Ix: IndexType> IntervalMap<T, V, Ix> {
     /// Write dot file to `writer`. `T` and `V` should implement `Display`.
     pub fn write_dot<W: Write>(&self, mut writer: W) -> io::Result<()> {
         writeln!(writer, "digraph {{")?;
@@ -677,7 +676,7 @@ impl<T: PartialOrd + Copy + Display, V: Display, Ix: NodeIndex> IntervalMap<T, V
     }
 }
 
-impl<T: PartialOrd + Copy + Debug, V: Debug, Ix: NodeIndex> Debug for IntervalMap<T, V, Ix> {
+impl<T: PartialOrd + Copy + Debug, V: Debug, Ix: IndexType> Debug for IntervalMap<T, V, Ix> {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         write!(f, "{{")?;
         let mut need_comma = false;
@@ -743,7 +742,7 @@ impl<T: PartialOrd + Copy + Debug, V: Debug, Ix: NodeIndex> Debug for IntervalMa
 /// assert_eq!(a, &[50..150, 100..210]);
 /// ```
 #[derive(Clone)]
-pub struct IntervalSet<T: PartialOrd + Copy, Ix: NodeIndex = DefaultIx> {
+pub struct IntervalSet<T: PartialOrd + Copy, Ix: IndexType = DefaultIx> {
     inner: IntervalMap<T, (), Ix>,
 }
 
@@ -756,7 +755,15 @@ impl<T: PartialOrd + Copy> IntervalSet<T> {
     }
 }
 
-impl<T: PartialOrd + Copy, Ix: NodeIndex> IntervalSet<T, Ix> {
+impl<T: PartialOrd + Copy, Ix: IndexType> Default for IntervalSet<T, Ix> {
+    fn default() -> Self {
+        Self {
+            inner: IntervalMap::default(),
+        }
+    }
+}
+
+impl<T: PartialOrd + Copy, Ix: IndexType> IntervalSet<T, Ix> {
     /// Creates an empty [IntervalSet](struct.IntervalSet.html) with `capacity`.
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
@@ -806,7 +813,7 @@ impl<T: PartialOrd + Copy, Ix: NodeIndex> IntervalSet<T, Ix> {
     }
 }
 
-impl<T: PartialOrd + Copy, Ix: NodeIndex> std::iter::IntoIterator for IntervalSet<T, Ix> {
+impl<T: PartialOrd + Copy, Ix: IndexType> std::iter::IntoIterator for IntervalSet<T, Ix> {
     type IntoIter = IntoIterSet<T, Ix>;
     type Item = Range<T>;
 
@@ -826,7 +833,7 @@ impl<T: PartialOrd + Copy> std::iter::FromIterator<Range<T>> for IntervalSet<T> 
     }
 }
 
-impl<T: PartialOrd + Copy + Debug, Ix: NodeIndex> Debug for IntervalSet<T, Ix> {
+impl<T: PartialOrd + Copy + Debug, Ix: IndexType> Debug for IntervalSet<T, Ix> {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         write!(f, "{{")?;
         let mut need_comma = false;

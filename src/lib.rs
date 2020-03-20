@@ -13,12 +13,9 @@
 //! returns intervals/values sorted lexicographically by intervals.
 
 // TODO:
-// - smallest, largest
 // - deletion
 // - union, split
-// - index newtype
-// - macro new
-// - iter_mut
+// - exact query match
 
 extern crate bit_vec;
 

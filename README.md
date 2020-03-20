@@ -45,8 +45,6 @@ You can find more detailed usage [here](https://docs.rs/iset).
 - Remove intervals from `IntervalMap` and `IntervalSet`.
 - Get all (interval, value) pairs by exact match with the query.
 - Join two maps/sets, split map/set into two.
-- Additional template parameter: Ix.
-    Use `u32` indices if largest number of intervals is not supposed to be bigger than `u32::MAX`.
 
 ## Changelog
 You can find changelog [here](https://gitlab.com/tprodanov/iset/-/releases).

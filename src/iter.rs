@@ -171,7 +171,7 @@ macro_rules! iterator {
         }
 
         impl<'a, T: PartialOrd + Copy, V, R: RangeBounds<T>> FusedIterator for $name<'a, T, V, R> { }
-    }
+    };
 }
 
 iterator! {

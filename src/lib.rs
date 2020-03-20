@@ -80,6 +80,66 @@ impl<T: PartialOrd + Copy> Interval<T> {
     }
 }
 
+pub trait NodeIndex: Copy + Display + Sized + Eq {
+    const UNDEFINED: Self;
+
+    #[doc(hidden)]
+    fn index(&self) -> usize;
+
+    /// Returns error if the number of elements is too big.
+    #[doc(hidden)]
+    fn new(element_num: usize) -> Result<Self, &'static str>;
+}
+
+macro_rules! index_error {
+    (U32) => {
+        "Failed to insert a new element into IntervalMap/Set. Try using indices iset::U64 instead of iset::U32."
+    };
+    ($name:ident) => {
+        concat!("Failed to insert a new element into IntervalMap/Set: number of elements is too large for iset::",
+            stringify!($name))
+    };
+}
+
+macro_rules! index_type {
+    (
+        $(#[$outer:meta])*
+        struct $name:ident($type:ident)
+    ) => {
+        $(#[$outer])*
+        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+        pub struct $name($type);
+
+        impl Display for $name {
+            fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+                write!(f, "{}", self.0)
+            }
+        }
+
+        impl NodeIndex for $name {
+            const UNDEFINED: Self = $name(std::$type::MAX);
+
+            #[inline]
+            fn index(&self) -> usize {
+                self.0 as usize
+            }
+
+            #[inline]
+            fn new(element_num: usize) -> Result<Self, &'static str> {
+                let element_num = element_num as $type;
+                if element_num == std::$type::MAX {
+                    Err(index_error!($name))
+                } else {
+                    Ok($name(element_num))
+                }
+            }
+        }
+    };
+}
+
+index_type!{ struct U32(u32) }
+index_type!{ struct U64(u64) }
+
 const UNDEFINED: usize = std::usize::MAX;
 
 #[derive(Debug, Clone)]

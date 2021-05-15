@@ -23,8 +23,9 @@ pub mod iter;
 #[cfg(test)]
 mod tests;
 
-use std::ops::{Range, RangeFull, RangeInclusive, RangeBounds, Bound};
-use std::fmt::{self, Debug, Display, Formatter};
+use core::ops::{Range, RangeFull, RangeInclusive, RangeBounds, Bound};
+use core::fmt::{self, Debug, Display, Formatter};
+#[cfg(test)]
 use std::io::{self, Write};
 
 pub use iter::*;
@@ -116,7 +117,7 @@ macro_rules! index_error {
 macro_rules! impl_index {
     ($type:ident) => {
         impl IndexType for $type {
-            const MAX: Self = std::$type::MAX;
+            const MAX: Self = core::$type::MAX;
 
             #[inline(always)]
             fn get(self) -> usize {
@@ -126,7 +127,7 @@ macro_rules! impl_index {
             #[inline]
             fn new(element_num: usize) -> Result<Self, &'static str> {
                 let element_num = element_num as $type;
-                if element_num == std::$type::MAX {
+                if element_num == core::$type::MAX {
                     Err(index_error!($type))
                 } else {
                     Ok(element_num as $type)
@@ -189,6 +190,7 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> Node<T, V, Ix> {
     }
 }
 
+#[cfg(test)]
 impl<T: PartialOrd + Copy + Display, V: Display, Ix: IndexType> Node<T, V, Ix> {
     fn write_dot<W: Write>(&self, index: Ix, mut writer: W) -> io::Result<()> {
         writeln!(writer, "    {} [label=\"i={}\\n{}: {}\\n{}\", fillcolor={}, style=filled]",
@@ -663,7 +665,7 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
     }
 }
 
-impl<T: PartialOrd + Copy, V, Ix: IndexType> std::iter::IntoIterator for IntervalMap<T, V, Ix> {
+impl<T: PartialOrd + Copy, V, Ix: IndexType> core::iter::IntoIterator for IntervalMap<T, V, Ix> {
     type IntoIter = IntoIter<T, V, RangeFull, Ix>;
     type Item = (Range<T>, V);
 
@@ -673,7 +675,7 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> std::iter::IntoIterator for Interva
 }
 
 /// Construct [IntervalMap](struct.IntervalMap.html) from pairs `(x..y, value)`.
-impl<T: PartialOrd + Copy, V> std::iter::FromIterator<(Range<T>, V)> for IntervalMap<T, V> {
+impl<T: PartialOrd + Copy, V> core::iter::FromIterator<(Range<T>, V)> for IntervalMap<T, V> {
     fn from_iter<I: IntoIterator<Item = (Range<T>, V)>>(iter: I) -> Self {
         let mut map = IntervalMap::new();
         for (range, value) in iter {
@@ -683,6 +685,7 @@ impl<T: PartialOrd + Copy, V> std::iter::FromIterator<(Range<T>, V)> for Interva
     }
 }
 
+#[cfg(test)]
 impl<T: PartialOrd + Copy + Display, V: Display, Ix: IndexType> IntervalMap<T, V, Ix> {
     /// Write dot file to `writer`. `T` and `V` should implement `Display`.
     pub fn write_dot<W: Write>(&self, mut writer: W) -> io::Result<()> {
@@ -729,11 +732,11 @@ impl<T: PartialOrd + Copy + Debug, V: Debug, Ix: IndexType> Debug for IntervalMa
 /// assert_eq!(b, &[0.4..1.5]);
 ///
 /// // Will panic:
-/// // set.insert(0.0..std::f32::NAN);
-/// // set.overlap(std::f32::NAN);
+/// // set.insert(0.0..core::f32::NAN);
+/// // set.overlap(core::f32::NAN);
 ///
 /// // It is still possible to use infinity.
-/// let inf = std::f32::INFINITY;
+/// let inf = core::f32::INFINITY;
 /// set.insert(0.0..inf);
 /// let c: Vec<_> = set.overlap(0.5).collect();
 /// assert_eq!(c, &[0.0..inf, 0.4..1.5]);
@@ -844,7 +847,7 @@ impl<T: PartialOrd + Copy, Ix: IndexType> IntervalSet<T, Ix> {
     }
 }
 
-impl<T: PartialOrd + Copy, Ix: IndexType> std::iter::IntoIterator for IntervalSet<T, Ix> {
+impl<T: PartialOrd + Copy, Ix: IndexType> core::iter::IntoIterator for IntervalSet<T, Ix> {
     type IntoIter = IntoIterSet<T, Ix>;
     type Item = Range<T>;
 
@@ -854,7 +857,7 @@ impl<T: PartialOrd + Copy, Ix: IndexType> std::iter::IntoIterator for IntervalSe
 }
 
 /// Construct [IntervalSet](struct.IntervalSet.html) from ranges `x..y`.
-impl<T: PartialOrd + Copy> std::iter::FromIterator<Range<T>> for IntervalSet<T> {
+impl<T: PartialOrd + Copy> core::iter::FromIterator<Range<T>> for IntervalSet<T> {
     fn from_iter<I: IntoIterator<Item = Range<T>>>(iter: I) -> Self {
         let mut set = IntervalSet::new();
         for range in iter {

@@ -1,8 +1,8 @@
 //! Module with various iterators over `IntervalMap` and `IntervalSet`.
 
-use std::ops::{Range, RangeFull, RangeBounds, Bound};
-use std::iter::FusedIterator;
-use std::mem;
+use core::ops::{Range, RangeFull, RangeBounds, Bound};
+use core::iter::FusedIterator;
+use core::mem;
 use bit_vec::BitVec;
 
 use super::{IntervalMap, Node, IndexType, check_interval, check_interval_incl};

@@ -17,12 +17,16 @@
 // - union, split
 // - exact query match
 
+#![no_std]
+
+extern crate alloc;
 extern crate bit_vec;
 
 pub mod iter;
 #[cfg(test)]
 mod tests;
 
+use alloc::vec::Vec;
 use core::ops::{Range, RangeFull, RangeInclusive, RangeBounds, Bound};
 use core::fmt::{self, Debug, Display, Formatter};
 #[cfg(test)]

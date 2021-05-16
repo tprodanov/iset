@@ -16,6 +16,7 @@
 // - deletion
 // - union, split
 // - exact query match
+// - support all range bounds (inclusive, exclusive and unbounded)
 
 #![no_std]
 

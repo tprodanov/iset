@@ -242,7 +242,10 @@ fn test_int_inserts() {
     let mut tree = IntervalMap::new();
     let history = modify_maps(&mut naive, &mut tree, COUNT, generate_int(0..100));
 
-    let f = File::create("tests/data/int.dot").unwrap();
+    let output_path = std::path::Path::new("tests/data/int.dot");
+    let folders = output_path.parent().unwrap();
+    std::fs::create_dir_all(folders).unwrap();
+    let f = File::create(output_path).unwrap();
     tree.write_dot(f).unwrap();
     check(&tree);
     compare_extremums(&naive, &tree, &history);
@@ -262,7 +265,10 @@ fn test_float_inserts() {
     let mut tree = IntervalMap::new();
     let history = modify_maps(&mut naive, &mut tree, COUNT, generate_float(0.0..1.0));
 
-    let f = File::create("tests/data/float.dot").unwrap();
+    let output_path = std::path::Path::new("tests/data/float.dot");
+    let folders = output_path.parent().unwrap();
+    std::fs::create_dir_all(folders).unwrap();
+    let f = File::create(output_path).unwrap();
     tree.write_dot(f).unwrap();
     check(&tree);
     compare_extremums(&naive, &tree, &history);

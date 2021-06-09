@@ -1,5 +1,6 @@
 extern crate rand;
 
+use std::string::String;
 use std::ops::{self, Range, RangeBounds, Bound};
 use std::fmt::{Debug, Write};
 use std::fs::File;
@@ -148,12 +149,12 @@ where T: PartialOrd + Copy + Debug,
 
 fn generate_int(range: Range<i32>) -> impl (FnMut() -> i32) {
     let mut rng = thread_rng();
-    move || rng.gen_range(range.start, range.end)
+    move || rng.gen_range(range.start..range.end)
 }
 
 fn generate_float(range: Range<f64>) -> impl (FnMut() -> f64) {
     let mut rng = thread_rng();
-    move || rng.gen_range(range.start, range.end)
+    move || rng.gen_range(range.start..range.end)
 }
 
 fn generate_range<T: PartialOrd + Copy + Debug, F: FnMut() -> T>(mut generator: F)

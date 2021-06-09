@@ -1,6 +1,6 @@
 [package]
 name = "iset"
-version = "0.0.3"
+version = "0.0.4"
 authors = ["Timofey Prodanov <timofey.prodanov@gmail.com>"]
 edition = "2018"
 description = "This crates implements map and set with interval keys."
@@ -22,4 +22,8 @@ incremental = false
 bit-vec = { version = "0.6", default-features = false }
 
 [dev-dependencies]
-rand = "0.7"
+rand = "0.8"
+
+[features]
+default = ["dot"]
+dot = []

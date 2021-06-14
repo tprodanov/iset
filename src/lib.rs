@@ -11,6 +11,13 @@
 //!
 //! Any iterator that goes over the [IntervalMap](struct.IntervalMap.html) or [IntervalSet](struct.IntervalSet.html)
 //! returns intervals/values sorted lexicographically by intervals.
+//!
+//! This crate allows to write interval maps and sets to .dot files
+//! (see [IntervalMap::write_dot](struct.IntervalMap.html#method.write_dot),
+//! [IntervalMap::write_dot_without_values](struct.IntervalMap.html#method.write_dot_without_values) and
+//! [IntervalSet::write_dot](struct.IntervalSet.html#method.write_dot)).
+//! You can disable this feature using `cargo build --no-default-features`,
+//! in that case the crate supports `no_std` environments.
 
 // TODO:
 // - deletion
@@ -20,6 +27,9 @@
 
 #![no_std]
 
+#[cfg(feature = "dot")]
+#[macro_use]
+extern crate std;
 extern crate alloc;
 extern crate bit_vec;
 
@@ -30,7 +40,7 @@ mod tests;
 use alloc::vec::Vec;
 use core::ops::{Range, RangeFull, RangeInclusive, RangeBounds, Bound};
 use core::fmt::{self, Debug, Display, Formatter};
-#[cfg(test)]
+#[cfg(feature = "dot")]
 use std::io::{self, Write};
 
 pub use iter::*;
@@ -200,12 +210,27 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> Node<T, V, Ix> {
     }
 }
 
-#[cfg(test)]
+#[cfg(feature = "dot")]
 impl<T: PartialOrd + Copy + Display, V: Display, Ix: IndexType> Node<T, V, Ix> {
     fn write_dot<W: Write>(&self, index: Ix, mut writer: W) -> io::Result<()> {
-        writeln!(writer, "    {} [label=\"i={}\\n{}: {}\\n{}\", fillcolor={}, style=filled]",
+        writeln!(writer, "    {} [label=\"i={}\\n{}: {}\\nsubtree: {}\", fillcolor={}, style=filled]",
             index, index, self.interval, self.value, self.subtree_interval,
             if self.is_red() { "salmon" } else { "grey65" })?;
+        if self.left.defined() {
+            writeln!(writer, "    {} -> {} [label=\"L\"]", index, self.left)?;
+        }
+        if self.right.defined() {
+            writeln!(writer, "    {} -> {} [label=\"R\"]", index, self.right)?;
+        }
+        Ok(())
+    }
+}
+
+#[cfg(feature = "dot")]
+impl<T: PartialOrd + Copy + Display, V, Ix: IndexType> Node<T, V, Ix> {
+    fn write_dot_without_values<W: Write>(&self, index: Ix, mut writer: W) -> io::Result<()> {
+        writeln!(writer, "    {} [label=\"i={}: {}\\nsubtree: {}\", fillcolor={}, style=filled]",
+            index, index, self.interval, self.subtree_interval, if self.is_red() { "salmon" } else { "grey65" })?;
         if self.left.defined() {
             writeln!(writer, "    {} -> {} [label=\"L\"]", index, self.left)?;
         }
@@ -696,13 +721,25 @@ impl<T: PartialOrd + Copy, V> core::iter::FromIterator<(Range<T>, V)> for Interv
     }
 }
 
-#[cfg(test)]
+#[cfg(feature = "dot")]
 impl<T: PartialOrd + Copy + Display, V: Display, Ix: IndexType> IntervalMap<T, V, Ix> {
     /// Write dot file to `writer`. `T` and `V` should implement `Display`.
     pub fn write_dot<W: Write>(&self, mut writer: W) -> io::Result<()> {
         writeln!(writer, "digraph {{")?;
         for i in 0..self.nodes.len() {
             self.nodes[i].write_dot(Ix::new(i).unwrap(), &mut writer)?;
+        }
+        writeln!(writer, "}}")
+    }
+}
+
+#[cfg(feature = "dot")]
+impl<T: PartialOrd + Copy + Display, V, Ix: IndexType> IntervalMap<T, V, Ix> {
+    /// Write dot file to `writer` without values. `T` should implement `Display`.
+    pub fn write_dot_without_values<W: Write>(&self, mut writer: W) -> io::Result<()> {
+        writeln!(writer, "digraph {{")?;
+        for i in 0..self.nodes.len() {
+            self.nodes[i].write_dot_without_values(Ix::new(i).unwrap(), &mut writer)?;
         }
         writeln!(writer, "}}")
     }
@@ -879,6 +916,14 @@ impl<T: PartialOrd + Copy> core::iter::FromIterator<Range<T>> for IntervalSet<T>
     }
 }
 
+#[cfg(feature = "dot")]
+impl<T: PartialOrd + Copy + Display, Ix: IndexType> IntervalSet<T, Ix> {
+    /// Write dot file to `writer`. `T` should implement `Display`.
+    pub fn write_dot<W: Write>(&self, writer: W) -> io::Result<()> {
+        self.inner.write_dot_without_values(writer)
+    }
+}
+
 impl<T: PartialOrd + Copy + Debug, Ix: IndexType> Debug for IntervalSet<T, Ix> {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         write!(f, "{{")?;
@@ -895,7 +940,7 @@ impl<T: PartialOrd + Copy + Debug, Ix: IndexType> Debug for IntervalSet<T, Ix> {
     }
 }
 
-/// Creates [IntervalMap](struct.IntervalMap.html) containing the arguments:
+/// Macros for [IntervalMap](struct.IntervalMap.html) creation.
 /// ```rust
 /// #[macro_use] extern crate iset;
 ///
@@ -916,7 +961,7 @@ macro_rules! interval_map {
     };
 }
 
-/// Creates [IntervalSet](struct.IntervalSet.html) containing the arguments:
+/// Macros for [IntervalSet](struct.IntervalSet.html) creation.
 /// ```rust
 /// #[macro_use] extern crate iset;
 ///

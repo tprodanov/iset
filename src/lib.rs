@@ -45,6 +45,10 @@ use std::io::{self, Write};
 
 pub use iter::*;
 
+#[cfg(feature = "serde")]
+use serde::{Serialize, Deserialize};
+
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord)]
 struct Interval<T: PartialOrd + Copy> {
     start: T,
@@ -160,6 +164,7 @@ impl_index!(u128);
 /// Default index type.
 pub type DefaultIx = u32;
 
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 struct Node<T: PartialOrd + Copy, V, Ix: IndexType> {
     interval: Interval<T>,
@@ -321,6 +326,7 @@ fn check_interval_incl<T: PartialOrd>(start: &T, end: &T) {
 /// map.insert(10..20, "a");
 /// ```
 /// See [IndexType](trait.IndexType.html) for details.
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Clone)]
 pub struct IntervalMap<T: PartialOrd + Copy, V, Ix: IndexType = DefaultIx> {
     nodes: Vec<Node<T, V, Ix>>,
@@ -817,6 +823,7 @@ impl<T: PartialOrd + Copy + Debug, V: Debug, Ix: IndexType> Debug for IntervalMa
 /// set.insert(10..20);
 /// ```
 /// See [IndexType](trait.IndexType.html) for details.
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Clone)]
 pub struct IntervalSet<T: PartialOrd + Copy, Ix: IndexType = DefaultIx> {
     inner: IntervalMap<T, (), Ix>,

@@ -1,4 +1,6 @@
 extern crate rand;
+#[cfg(feature = "serde")]
+extern crate serde_json;
 
 use std::string::String;
 use std::ops::{self, Range, RangeBounds, Bound};
@@ -236,6 +238,24 @@ where T: PartialOrd + Copy + Debug
     }
 }
 
+fn compare_iterators<T, I, J>(mut iter1: I, mut iter2: J, history: &str)
+where
+    T: PartialEq + Debug,
+    I: Iterator<Item = T>,
+    J: Iterator<Item = T>,
+{
+    loop {
+        match (iter1.next(), iter2.next()) {
+            (None, None) => break,
+            (x, y) => if x != y {
+                println!("{}", history);
+                println!();
+                assert_eq!(x, y);
+            },
+        }
+    }
+}
+
 #[test]
 fn test_int_inserts() {
     const COUNT: u32 = 1000;
@@ -280,4 +300,23 @@ fn test_float_inserts() {
     search_rand(&mut naive, &mut tree, COUNT, generate_range_incl(generate_float(0.0..1.0)), &history);
     search_rand(&mut naive, &mut tree, COUNT, generate_range_to(generate_float(0.0..1.0)), &history);
     search_rand(&mut naive, &mut tree, COUNT, generate_range_to_incl(generate_float(0.0..1.0)), &history);
+}
+
+#[cfg(feature = "serde")]
+#[test]
+fn test_serde() {
+    const COUNT: u32 = 1000;
+    let mut naive = NaiveIntervalMap::new();
+    let mut tree: IntervalMap<i32, u32> = IntervalMap::new();
+    let history = modify_maps(&mut naive, &mut tree, COUNT, generate_int(0..10000));
+
+    let json_path = std::path::Path::new("tests/data/serde.json");
+    let folders = json_path.parent().unwrap();
+    std::fs::create_dir_all(folders).unwrap();
+    let output = File::create(json_path).unwrap();
+    serde_json::to_writer_pretty(output, &tree).unwrap();
+
+    let input = File::open(json_path).unwrap();
+    let tree2: IntervalMap<i32, u32> = serde_json::from_reader(input).unwrap();
+    compare_iterators(tree.iter(..), tree2.iter(..), &history);
 }

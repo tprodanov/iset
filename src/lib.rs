@@ -44,6 +44,8 @@ use core::fmt::{self, Debug, Display, Formatter};
 use std::io::{self, Write};
 #[cfg(feature = "serde")]
 use serde::{Serialize, Serializer, Deserialize, Deserializer};
+#[cfg(feature = "serde")]
+use serde::ser::SerializeTuple;
 
 pub use iter::*;
 
@@ -250,6 +252,31 @@ impl<T: PartialOrd + Copy + Display, V, Ix: IndexType> Node<T, V, Ix> {
             writeln!(writer, "    {} -> {} [label=\"R\"]", index, self.right)?;
         }
         Ok(())
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<T: PartialOrd + Copy + Serialize, V: Serialize, Ix: IndexType + Serialize> Serialize for Node<T, V, Ix> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut tup = serializer.serialize_tuple(7)?;
+        tup.serialize_element(&self.interval)?;
+        tup.serialize_element(&self.subtree_interval)?;
+        tup.serialize_element(&self.value)?;
+        tup.serialize_element(&self.left)?;
+        tup.serialize_element(&self.right)?;
+        tup.serialize_element(&self.parent)?;
+        tup.serialize_element(&self.red_color)?;
+        tup.end()
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'de, T: PartialOrd + Copy + Deserialize<'de>, V: Deserialize<'de>, Ix: IndexType + Deserialize<'de>>
+        Deserialize<'de> for Node<T, V, Ix> {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let (interval, subtree_interval, value, left, right, parent, red_color) =
+            <(Interval<T>, Interval<T>, V, Ix, Ix, Ix, bool)>::deserialize(deserializer)?;
+        Ok(Node { interval, subtree_interval, value, left, right, parent, red_color })
     }
 }
 

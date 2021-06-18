@@ -42,6 +42,8 @@ use core::ops::{Range, RangeFull, RangeInclusive, RangeBounds, Bound};
 use core::fmt::{self, Debug, Display, Formatter};
 #[cfg(feature = "dot")]
 use std::io::{self, Write};
+#[cfg(feature = "serde")]
+use serde::{Serialize, Serializer, Deserialize, Deserializer};
 
 pub use iter::*;
 
@@ -90,6 +92,21 @@ impl<T: PartialOrd + Copy> Interval<T> {
         if other.end > self.end {
             self.end = other.end;
         }
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<T: PartialOrd + Copy + Serialize> Serialize for Interval<T> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        (self.start, self.end).serialize(serializer)
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'de, T: PartialOrd + Copy + Deserialize<'de>> Deserialize<'de> for Interval<T> {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let (start, end) = <(T, T)>::deserialize(deserializer)?;
+        Ok(Interval { start, end })
     }
 }
 

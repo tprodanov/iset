@@ -45,7 +45,7 @@ use std::io::{self, Write};
 #[cfg(feature = "serde")]
 use serde::{Serialize, Serializer, Deserialize, Deserializer};
 #[cfg(feature = "serde")]
-use serde::ser::SerializeTuple;
+use serde::ser::{SerializeTuple, SerializeSeq};
 
 pub use iter::*;
 
@@ -796,6 +796,31 @@ impl<T: PartialOrd + Copy + Debug, V: Debug, Ix: IndexType> Debug for IntervalMa
             write!(f, "{:?}: {:?}", interval, value)?;
         }
         write!(f, "}}")
+    }
+}
+
+// For some reason, Vec<Node> does not support serialization. Because of that we create a newtype.
+#[cfg(feature = "serde")]
+struct NodeVec<'a, T: PartialOrd + Copy + Serialize, V: Serialize, Ix: IndexType + Serialize>(&'a Vec<Node<T, V, Ix>>);
+
+#[cfg(feature = "serde")]
+impl<'a, T: PartialOrd + Copy + Serialize, V: Serialize, Ix: IndexType + Serialize> Serialize for NodeVec<'a, T, V, Ix> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut seq = serializer.serialize_seq(Some(self.0.len()))?;
+        for node in self.0 {
+            seq.serialize_element(node)?;
+        }
+        seq.end()
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<T: PartialOrd + Copy + Serialize, V: Serialize, Ix: IndexType + Serialize> Serialize for IntervalMap<T, V, Ix> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut tup = serializer.serialize_tuple(2)?;
+        tup.serialize_element(&NodeVec(&self.nodes))?;
+        tup.serialize_element(&self.root)?;
+        tup.end()
     }
 }
 

@@ -40,9 +40,10 @@ mod tests;
 use alloc::vec::Vec;
 use core::ops::{Range, RangeFull, RangeInclusive, RangeBounds, Bound};
 use core::fmt::{self, Debug, Display, Formatter};
-use core::marker::PhantomData;
 #[cfg(feature = "dot")]
 use std::io::{self, Write};
+#[cfg(feature = "serde")]
+use core::marker::PhantomData;
 #[cfg(feature = "serde")]
 use serde::{Serialize, Serializer, Deserialize, Deserializer};
 #[cfg(feature = "serde")]
@@ -1085,6 +1086,29 @@ impl<T: PartialOrd + Copy + Debug, Ix: IndexType> Debug for IntervalSet<T, Ix> {
             write!(f, "{:?}", interval)?;
         }
         write!(f, "}}")
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<T, Ix> Serialize for IntervalSet<T, Ix>
+where
+    T: PartialOrd + Copy + Serialize,
+    Ix: IndexType + Serialize,
+{
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        self.inner.serialize(serializer)
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'de, T, Ix> Deserialize<'de> for IntervalSet<T, Ix>
+where
+    T: PartialOrd + Copy + Deserialize<'de>,
+    Ix: IndexType + Deserialize<'de>,
+{
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let inner = <IntervalMap<T, (), Ix>>::deserialize(deserializer)?;
+        Ok(IntervalSet { inner })
     }
 }
 

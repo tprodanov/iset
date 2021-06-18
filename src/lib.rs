@@ -40,12 +40,15 @@ mod tests;
 use alloc::vec::Vec;
 use core::ops::{Range, RangeFull, RangeInclusive, RangeBounds, Bound};
 use core::fmt::{self, Debug, Display, Formatter};
+use core::marker::PhantomData;
 #[cfg(feature = "dot")]
 use std::io::{self, Write};
 #[cfg(feature = "serde")]
 use serde::{Serialize, Serializer, Deserialize, Deserializer};
 #[cfg(feature = "serde")]
 use serde::ser::{SerializeTuple, SerializeSeq};
+#[cfg(feature = "serde")]
+use serde::de::{Visitor, SeqAccess};
 
 pub use iter::*;
 
@@ -271,8 +274,12 @@ impl<T: PartialOrd + Copy + Serialize, V: Serialize, Ix: IndexType + Serialize> 
 }
 
 #[cfg(feature = "serde")]
-impl<'de, T: PartialOrd + Copy + Deserialize<'de>, V: Deserialize<'de>, Ix: IndexType + Deserialize<'de>>
-        Deserialize<'de> for Node<T, V, Ix> {
+impl<'de, T, V, Ix> Deserialize<'de> for Node<T, V, Ix>
+where
+    T: PartialOrd + Copy + Deserialize<'de>,
+    V: Deserialize<'de>,
+    Ix: IndexType + Deserialize<'de>,
+{
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let (interval, subtree_interval, value, left, right, parent, red_color) =
             <(Interval<T>, Interval<T>, V, Ix, Ix, Ix, bool)>::deserialize(deserializer)?;
@@ -799,28 +806,107 @@ impl<T: PartialOrd + Copy + Debug, V: Debug, Ix: IndexType> Debug for IntervalMa
     }
 }
 
-// For some reason, Vec<Node> does not support serialization. Because of that we create a newtype.
 #[cfg(feature = "serde")]
-struct NodeVec<'a, T: PartialOrd + Copy + Serialize, V: Serialize, Ix: IndexType + Serialize>(&'a Vec<Node<T, V, Ix>>);
+impl<T, V, Ix> Serialize for IntervalMap<T, V, Ix>
+    where
+        T: PartialOrd + Copy + Serialize,
+        V: Serialize,
+        Ix: IndexType + Serialize,
+{
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        // For some reason, Vec<Node> does not support serialization. Because of that we create a newtype.
+        struct NodeVecSer<'a, T, V, Ix>(&'a Vec<Node<T, V, Ix>>)
+            where
+                T: PartialOrd + Copy + Serialize,
+                V: Serialize,
+                Ix: IndexType + Serialize;
+
+        impl<'a, T, V, Ix> Serialize for NodeVecSer<'a, T, V, Ix>
+            where
+                T: PartialOrd + Copy + Serialize,
+                V: Serialize,
+                Ix: IndexType + Serialize,
+        {
+            fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+                let mut seq = serializer.serialize_seq(Some(self.0.len()))?;
+                for node in self.0 {
+                    seq.serialize_element(node)?;
+                }
+                seq.end()
+            }
+        }
+
+        let mut tup = serializer.serialize_tuple(2)?;
+        tup.serialize_element(&NodeVecSer(&self.nodes))?;
+        tup.serialize_element(&self.root)?;
+        tup.end()
+    }
+}
+
+// For some reason, Vec<Node> does not support deserialization. Because of that we create a newtype.
+#[cfg(feature = "serde")]
+struct NodeVecDe<T: PartialOrd + Copy, V, Ix: IndexType>(Vec<Node<T, V, Ix>>);
 
 #[cfg(feature = "serde")]
-impl<'a, T: PartialOrd + Copy + Serialize, V: Serialize, Ix: IndexType + Serialize> Serialize for NodeVec<'a, T, V, Ix> {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut seq = serializer.serialize_seq(Some(self.0.len()))?;
-        for node in self.0 {
-            seq.serialize_element(node)?;
-        }
-        seq.end()
+impl<T: PartialOrd + Copy, V, Ix: IndexType> NodeVecDe<T, V, Ix> {
+    fn take(self) -> Vec<Node<T, V, Ix>> {
+        self.0
     }
 }
 
 #[cfg(feature = "serde")]
-impl<T: PartialOrd + Copy + Serialize, V: Serialize, Ix: IndexType + Serialize> Serialize for IntervalMap<T, V, Ix> {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut tup = serializer.serialize_tuple(2)?;
-        tup.serialize_element(&NodeVec(&self.nodes))?;
-        tup.serialize_element(&self.root)?;
-        tup.end()
+impl<'de, T, V, Ix> Deserialize<'de> for NodeVecDe<T, V, Ix>
+    where
+        T: PartialOrd + Copy + Deserialize<'de>,
+        V: Deserialize<'de>,
+        Ix: IndexType + Deserialize<'de>,
+{
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct NodeVecVisitor<T: PartialOrd + Copy, V, Ix: IndexType> {
+            marker: PhantomData<(T, V, Ix)>,
+        }
+
+        impl<'de, T, V, Ix> Visitor<'de> for NodeVecVisitor<T, V, Ix>
+        where
+            T: PartialOrd + Copy + Deserialize<'de>,
+            V: Deserialize<'de>,
+            Ix: IndexType + Deserialize<'de>,
+        {
+            type Value = NodeVecDe<T, V, Ix>;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("a sequence of Node<T, V, Ix>")
+            }
+
+            fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
+                let mut values = Vec::new();
+                while let Some(value) = seq.next_element()? {
+                    values.push(value);
+                }
+                Ok(NodeVecDe(values))
+            }
+        }
+
+        let visitor = NodeVecVisitor {
+            marker: PhantomData,
+        };
+        deserializer.deserialize_seq(visitor)
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'de, T, V, Ix> Deserialize<'de> for IntervalMap<T, V, Ix>
+where
+    T: PartialOrd + Copy + Deserialize<'de>,
+    V: Deserialize<'de>,
+    Ix: IndexType + Deserialize<'de>,
+{
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let (node_vec, root) = <(NodeVecDe<T, V, Ix>, Ix)>::deserialize(deserializer)?;
+        Ok(IntervalMap {
+            nodes: node_vec.take(),
+            root,
+        })
     }
 }
 

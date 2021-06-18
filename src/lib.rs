@@ -18,6 +18,8 @@
 //! [IntervalSet::write_dot](struct.IntervalSet.html#method.write_dot)).
 //! You can disable this feature using `cargo build --no-default-features`,
 //! in that case the crate supports `no_std` environments.
+//!
+//! Since version 0.0.5, this crate supports serialization/deserialization (use optional feature `serde`).
 
 // TODO:
 // - deletion

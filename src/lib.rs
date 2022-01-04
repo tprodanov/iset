@@ -45,13 +45,12 @@ use core::fmt::{self, Debug, Display, Formatter};
 #[cfg(feature = "dot")]
 use std::io::{self, Write};
 #[cfg(feature = "serde")]
-use core::marker::PhantomData;
-#[cfg(feature = "serde")]
-use serde::{Serialize, Serializer, Deserialize, Deserializer};
-#[cfg(feature = "serde")]
-use serde::ser::{SerializeTuple, SerializeSeq};
-#[cfg(feature = "serde")]
-use serde::de::{Visitor, SeqAccess};
+use {
+    core::marker::PhantomData,
+    serde::{Serialize, Serializer, Deserialize, Deserializer},
+    serde::ser::{SerializeTuple, SerializeSeq},
+    serde::de::{Visitor, SeqAccess},
+};
 
 pub use iter::*;
 
@@ -356,10 +355,7 @@ pub struct IntervalMap<T: PartialOrd + Copy, V, Ix: IndexType = DefaultIx> {
 impl<T: PartialOrd + Copy, V> IntervalMap<T, V> {
     /// Creates an empty [IntervalMap](struct.IntervalMap.html).
     pub fn new() -> Self {
-        Self {
-            nodes: Vec::new(),
-            root: DefaultIx::MAX,
-        }
+        Self::default()
     }
 }
 
@@ -668,7 +664,7 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
         ValuesMut::new(self, point..=point)
     }
 
-    /// Returns the pair `(x..y, &value)` with the smallest `x..y` (intervals are sorted lexicographically).
+    /// Returns the pair `(x..y, &value)` with the smallest interval `x..y` (in a lexicographical order).
     /// Takes *O(log N)*. Returns `None` if the map is empty.
     pub fn smallest(&self) -> Option<(Range<T>, &V)> {
         let mut index = self.root;
@@ -681,7 +677,7 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
         Some((self.nodes[index.get()].interval.to_range(), &self.nodes[index.get()].value))
     }
 
-    /// Returns the pair `(x..y, &mut value)` with the smallest `x..y` (intervals are sorted lexicographically).
+    /// Returns the pair `(x..y, &mut value)` with the smallest interval `x..y` (in a lexicographical order).
     /// Takes *O(log N)*. Returns `None` if the map is empty.
     pub fn smallest_mut(&mut self) -> Option<(Range<T>, &mut V)> {
         let mut index = self.root;
@@ -694,7 +690,7 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
         Some((self.nodes[index.get()].interval.to_range(), &mut self.nodes[index.get()].value))
     }
 
-    /// Returns the pair `(x..y, &value)` with the largest `x..y` (intervals are sorted lexicographically).
+    /// Returns the pair `(x..y, &value)` with the largest interval `x..y` (in a lexicographical order).
     /// Takes *O(log N)*. Returns `None` if the map is empty.
     pub fn largest(&self) -> Option<(Range<T>, &V)> {
         let mut index = self.root;
@@ -707,7 +703,7 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
         Some((self.nodes[index.get()].interval.to_range(), &self.nodes[index.get()].value))
     }
 
-    /// Returns the pair `(x..y, &mut value)` with the largest `x..y` (intervals are sorted lexicographically).
+    /// Returns the pair `(x..y, &mut value)` with the largest interval `x..y` (in a lexicographical order).
     /// Takes *O(log N)*. Returns `None` if the map is empty.
     pub fn largest_mut(&mut self) -> Option<(Range<T>, &mut V)> {
         let mut index = self.root;
@@ -955,9 +951,7 @@ pub struct IntervalSet<T: PartialOrd + Copy, Ix: IndexType = DefaultIx> {
 impl<T: PartialOrd + Copy> IntervalSet<T> {
     /// Creates an empty [IntervalSet](struct.IntervalSet.html).
     pub fn new() -> Self {
-        Self {
-            inner: IntervalMap::new(),
-        }
+        Self::default()
     }
 }
 

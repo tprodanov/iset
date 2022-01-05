@@ -76,10 +76,6 @@ fn check<T: PartialOrd + Copy, V, Ix: IndexType>(tree: &IntervalMap<T, V, Ix>) {
     assert!(interval == node.subtree_interval, "Interval != subtree interval for node {}", tree.root);
 }
 
-struct NaiveIntervalMap<T: PartialOrd + Copy, V> {
-    nodes: Vec<(Range<T>, V)>,
-}
-
 fn intersects<T: PartialOrd, R: RangeBounds<T>>(range: &Range<T>, query: &R) -> bool {
     (match query.end_bound() {
         Bound::Included(value) => value >= &range.start,
@@ -91,6 +87,14 @@ fn intersects<T: PartialOrd, R: RangeBounds<T>>(range: &Range<T>, query: &R) -> 
         Bound::Included(value) | Bound::Excluded(value) => value < &range.end,
         Bound::Unbounded => true,
     })
+}
+
+fn range_eq<T: PartialOrd>(a: &Range<T>, b: &Range<T>) -> bool {
+    a.start_bound() == b.start_bound() && a.end_bound() == b.end_bound()
+}
+
+struct NaiveIntervalMap<T: PartialOrd + Copy, V> {
+    nodes: Vec<(Range<T>, V)>,
 }
 
 impl<T: PartialOrd + Copy, V> NaiveIntervalMap<T, V> {
@@ -107,6 +111,10 @@ impl<T: PartialOrd + Copy, V> NaiveIntervalMap<T, V> {
     fn iter<'a, R: 'a + RangeBounds<T>>(&'a self, query: R) -> impl Iterator<Item = (Range<T>, &V)> + 'a {
         self.nodes.iter().filter(move |(range, _value)| intersects(range, &query))
             .map(|(range, value)| (range.clone(), value))
+    }
+
+    fn all_matching<'a>(&'a self, query: Range<T>) -> impl Iterator<Item = &V> + 'a {
+        self.nodes.iter().filter(move |(range, _value)| range_eq(&range, &query)).map(|(_range, value)| value)
     }
 }
 
@@ -126,12 +134,11 @@ fn generate_ordered_pair<T: PartialOrd + Copy, F: FnMut() -> T>(generator: &mut 
 fn modify_maps<T, F>(naive: &mut NaiveIntervalMap<T, u32>, tree: &mut IntervalMap<T, u32>, n_inserts: u32,
         mut generator: F) -> String
 where T: PartialOrd + Copy + Debug,
-      F: FnMut() -> T,
+      F: FnMut() -> Range<T>,
 {
     let mut history = String::new();
     for i in 0..n_inserts {
-        let (a, b) = generate_ordered_pair(&mut generator, true);
-        let range = a..b;
+        let range = generator();
         writeln!(history, "insert({:?})", range).unwrap();
         naive.insert(range.clone(), i);
         tree.insert(range.clone(), i);
@@ -149,18 +156,18 @@ where T: PartialOrd + Copy + Debug,
     res
 }
 
-fn generate_int(range: Range<i32>) -> impl (FnMut() -> i32) {
+fn generate_int(a: i32, b: i32) -> impl (FnMut() -> i32) {
     let mut rng = thread_rng();
-    move || rng.gen_range(range.start..range.end)
+    move || rng.gen_range(a..b)
 }
 
-fn generate_float(range: Range<f64>) -> impl (FnMut() -> f64) {
+fn generate_float(a: f64, b: f64) -> impl (FnMut() -> f64) {
     let mut rng = thread_rng();
-    move || rng.gen_range(range.start..range.end)
+    move || rng.gen_range(a..b)
 }
 
 fn generate_range<T: PartialOrd + Copy + Debug, F: FnMut() -> T>(mut generator: F)
-        -> impl (FnMut() -> ops::Range<T>) {
+        -> impl (FnMut() -> Range<T>) {
     move || {
         let (a, b) = generate_ordered_pair(&mut generator, true);
         a..b
@@ -238,6 +245,39 @@ where T: PartialOrd + Copy + Debug
     }
 }
 
+fn compare_match_results<T>(naive: &NaiveIntervalMap<T, u32>, tree: &IntervalMap<T, u32>, history: &str, range: Range<T>)
+where T: PartialOrd + Copy + Clone + Debug
+{
+    let values: Vec<u32> = naive.all_matching(range.clone()).map(|v| *v).collect();
+    let mut correct = true;
+    correct &= values.is_empty() != tree.contains(range.clone());
+    correct &= match tree.get(range.clone()) {
+        Some(value) => values.contains(&value),
+        None => values.is_empty(),
+    };
+    if !correct {
+        println!("Range: {:?},   values: {:?},   tree.get: {:?}", range, values, tree.get(range.clone()));
+        println!("{}", history);
+        println!();
+        panic!();
+    }
+}
+
+fn compare_exact_matching<T, F>(naive: &NaiveIntervalMap<T, u32>, tree: &IntervalMap<T, u32>, history: &str,
+    mut generator: F)
+where T: PartialOrd + Copy + Debug,
+      F: FnMut() -> Range<T>,
+{
+    for (range, _value) in &naive.nodes {
+        compare_match_results(naive, tree, history, range.clone());
+    }
+
+    for _ in 0..naive.nodes.len() {
+        compare_match_results(naive, tree, history, generator());
+    }
+}
+
+#[cfg(feature = "serde")]
 fn compare_iterators<T, I, J>(mut iter1: I, mut iter2: J, history: &str)
 where
     T: PartialEq + Debug,
@@ -258,10 +298,11 @@ where
 
 #[test]
 fn test_int_inserts() {
-    const COUNT: u32 = 1000;
+    const COUNT: u32 = 10000;
     let mut naive = NaiveIntervalMap::new();
     let mut tree = IntervalMap::new();
-    let history = modify_maps(&mut naive, &mut tree, COUNT, generate_int(0..100));
+    let mut generator = generate_int(0, 100);
+    let history = modify_maps(&mut naive, &mut tree, COUNT, generate_range(&mut generator));
 
     let output_path = std::path::Path::new("tests/data/int.dot");
     let folders = output_path.parent().unwrap();
@@ -270,21 +311,23 @@ fn test_int_inserts() {
     tree.write_dot(f).unwrap();
     check(&tree);
     compare_extremums(&naive, &tree, &history);
+    compare_exact_matching(&naive, &tree, &history, generate_range(&mut generator));
 
-    search_rand(&mut naive, &mut tree, COUNT, generate_range(generate_int(0..100)), &history);
-    search_rand(&mut naive, &mut tree, COUNT, generate_range_from(generate_int(0..100)), &history);
+    search_rand(&mut naive, &mut tree, COUNT, generate_range(&mut generator), &history);
+    search_rand(&mut naive, &mut tree, COUNT, generate_range_from(&mut generator), &history);
     search_rand(&mut naive, &mut tree, 1, generate_range_full, &history);
-    search_rand(&mut naive, &mut tree, COUNT, generate_range_incl(generate_int(0..100)), &history);
-    search_rand(&mut naive, &mut tree, COUNT, generate_range_to(generate_int(0..100)), &history);
-    search_rand(&mut naive, &mut tree, COUNT, generate_range_to_incl(generate_int(0..100)), &history);
+    search_rand(&mut naive, &mut tree, COUNT, generate_range_incl(&mut generator), &history);
+    search_rand(&mut naive, &mut tree, COUNT, generate_range_to(&mut generator), &history);
+    search_rand(&mut naive, &mut tree, COUNT, generate_range_to_incl(&mut generator), &history);
 }
 
 #[test]
 fn test_float_inserts() {
-    const COUNT: u32 = 1000;
+    const COUNT: u32 = 10000;
     let mut naive = NaiveIntervalMap::new();
     let mut tree = IntervalMap::new();
-    let history = modify_maps(&mut naive, &mut tree, COUNT, generate_float(0.0..1.0));
+    let mut generator = generate_float(0.0, 1.0);
+    let history = modify_maps(&mut naive, &mut tree, COUNT, generate_range(&mut generator));
 
     let output_path = std::path::Path::new("tests/data/float.dot");
     let folders = output_path.parent().unwrap();
@@ -294,12 +337,12 @@ fn test_float_inserts() {
     check(&tree);
     compare_extremums(&naive, &tree, &history);
 
-    search_rand(&mut naive, &mut tree, COUNT, generate_range(generate_float(0.0..1.0)), &history);
-    search_rand(&mut naive, &mut tree, COUNT, generate_range_from(generate_float(0.0..1.0)), &history);
+    search_rand(&mut naive, &mut tree, COUNT, generate_range(&mut generator), &history);
+    search_rand(&mut naive, &mut tree, COUNT, generate_range_from(&mut generator), &history);
     search_rand(&mut naive, &mut tree, 1, generate_range_full, &history);
-    search_rand(&mut naive, &mut tree, COUNT, generate_range_incl(generate_float(0.0..1.0)), &history);
-    search_rand(&mut naive, &mut tree, COUNT, generate_range_to(generate_float(0.0..1.0)), &history);
-    search_rand(&mut naive, &mut tree, COUNT, generate_range_to_incl(generate_float(0.0..1.0)), &history);
+    search_rand(&mut naive, &mut tree, COUNT, generate_range_incl(&mut generator), &history);
+    search_rand(&mut naive, &mut tree, COUNT, generate_range_to(&mut generator), &history);
+    search_rand(&mut naive, &mut tree, COUNT, generate_range_to_incl(&mut generator), &history);
 }
 
 #[cfg(feature = "serde")]

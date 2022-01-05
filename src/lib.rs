@@ -5,11 +5,11 @@
 //! The tree takes *O(N)* space and allows insertion in *O(log N)*.
 //! [IntervalMap](struct.IntervalMap.html) allows to search for all entries overlapping a query (interval or a point,
 //! output would be sorted by keys). Search takes *O(log N + K)* where *K* is the size of the output.
-//! Additionally, you can extract smallest/largest interval with its value in *O(log N)*.
+//! Additionally, you can extract the smallest/largest interval with its value in *O(log N)*.
 //!
 //! [IntervalSet](struct.IntervalSet.html) is a newtype over [IntervalMap](struct.IntervalMap.html) with empty values.
 //!
-//! Any iterator that goes over the [IntervalMap](struct.IntervalMap.html) or [IntervalSet](struct.IntervalSet.html)
+//! Any iterator that goes over an [IntervalMap](struct.IntervalMap.html) or [IntervalSet](struct.IntervalSet.html)
 //! returns intervals/values sorted lexicographically by intervals.
 //!
 //! This crate allows to write interval maps and sets to .dot files
@@ -19,13 +19,12 @@
 //! You can disable this feature using `cargo build --no-default-features`,
 //! in that case the crate supports `no_std` environments.
 //!
-//! Since version 0.0.5, this crate supports serialization/deserialization (use optional feature `serde`).
+//! This crate supports serialization/deserialization using an optional feature `serde`.
 
 // TODO:
 // - deletion
 // - union, split
 // - exact query match
-// - support all range bounds (inclusive, exclusive and unbounded)
 
 #![no_std]
 
@@ -42,6 +41,7 @@ mod tests;
 use alloc::vec::Vec;
 use core::ops::{Range, RangeFull, RangeInclusive, RangeBounds, Bound};
 use core::fmt::{self, Debug, Display, Formatter};
+use core::cmp::Ordering;
 #[cfg(feature = "dot")]
 use std::io::{self, Write};
 #[cfg(feature = "serde")]
@@ -121,11 +121,11 @@ impl<'de, T: PartialOrd + Copy + Deserialize<'de>> Deserialize<'de> for Interval
 /// [IntervalSet](struct.IntervalSet.html).
 ///
 /// Implemented for `u8`, `u16`, `u32`, `u64` and `u128`. [DefaultIx](type.DefaultIx.html) is an alias for default
-/// index type (`u32`). `IntervalMap` or `IntervalSet` can store up to `min(usize::MAX, Ix::MAX - 1)` elements.
+/// index type (`u32`). `IntervalMap` or `IntervalSet` can store up to `Ix::MAX - 1` elements.
 ///
 /// Using smaller index type saves memory usage and may reduce running time.
 pub trait IndexType: Copy + Display + Sized + Eq {
-    /// Maximal possible value. Used for undefined indices.
+    /// Undefined index. There can be no indices higher than MAX.
     const MAX: Self;
 
     /// Converts index into `usize`.
@@ -134,7 +134,7 @@ pub trait IndexType: Copy + Display + Sized + Eq {
     /// Creates a new index. Returns error if the `elemen_num` is too big.
     fn new(element_num: usize) -> Result<Self, &'static str>;
 
-    /// Returns `true` if the index is defined (not equal to `Self::MAX`).
+    /// Returns `true` if the index is defined.
     #[inline(always)]
     fn defined(self) -> bool {
         self != Self::MAX
@@ -265,9 +265,9 @@ fn check_interval<T: PartialOrd>(start: &T, end: &T) {
     if start < end {
         assert!(end > start, "Interval cannot be ordered (`start < end` but not `end > start`)");
     } else if end <= start {
-        panic!("Interval is empty (`start >= `end`)");
+        panic!("Interval is empty (`start >= end`)");
     } else {
-        panic!("Interval cannot be ordered (`start < end` but not `end <= start`)");
+        panic!("Interval cannot be ordered (not `start < end` and not `end <= start`)");
     }
 }
 
@@ -275,9 +275,9 @@ fn check_interval_incl<T: PartialOrd>(start: &T, end: &T) {
     if start <= end {
         assert!(end >= start, "Interval cannot be ordered (`start < end` but not `end > start`)");
     } else if end < start {
-        panic!("Interval is empty (`start > `end`)");
+        panic!("Interval is empty (`start > end`)");
     } else {
-        panic!("Interval cannot be ordered (`start <= end` but not `end < start`)");
+        panic!("Interval cannot be ordered (not `start <= end` and not `end < start`)");
     }
 }
 
@@ -715,6 +715,48 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
         }
         Some((self.nodes[index.get()].interval.to_range(), &mut self.nodes[index.get()].value))
     }
+
+    fn find_index(&self, interval: &Range<T>) -> Ix {
+        let interval = Interval::new(interval);
+        let mut index = self.root;
+        while index.defined() {
+            let node = &self.nodes[index.get()];
+            match interval.partial_cmp(&node.interval) {
+                Some(Ordering::Less) => index = node.left,
+                Some(Ordering::Greater) => index = node.right,
+                Some(Ordering::Equal) => return index,
+                None => panic!("Cannot order intervals"),
+            }
+        }
+        index
+    }
+
+    /// Check if the interval map contains `interval` (exact match).
+    pub fn contains(&self, interval: Range<T>) -> bool {
+        self.find_index(&interval).defined()
+    }
+
+    /// Returns value associated with `interval` (exact match).
+    /// If there is no such interval, returns `None`.
+    pub fn get(&self, interval: Range<T>) -> Option<&V> {
+        let index = self.find_index(&interval);
+        if index.defined() {
+            Some(&self.nodes[index.get()].value)
+        } else {
+            None
+        }
+    }
+
+    /// Returns value associated with `interval` (exact match).
+    /// If there is no such interval, returns `None`.
+    pub fn get_mut(&mut self, interval: Range<T>) -> Option<&mut V> {
+        let index = self.find_index(&interval);
+        if index.defined() {
+            Some(&mut self.nodes[index.get()].value)
+        } else {
+            None
+        }
+    }
 }
 
 impl<T: PartialOrd + Copy, V, Ix: IndexType> core::iter::IntoIterator for IntervalMap<T, V, Ix> {
@@ -1010,6 +1052,11 @@ impl<T: PartialOrd + Copy, Ix: IndexType> IntervalSet<T, Ix> {
     /// Takes *O(log N)*. Returns `None` if the set is empty.
     pub fn largest(&self) -> Option<Range<T>> {
         self.inner.largest().map(|(interval, _)| interval)
+    }
+
+    /// Check if the interval set contains `interval` (exact match).
+    pub fn contains(&self, interval: Range<T>) -> bool {
+        self.inner.contains(interval)
     }
 }
 

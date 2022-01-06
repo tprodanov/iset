@@ -177,6 +177,11 @@ macro_rules! iterator {
                     Some($out)
                 }
             }
+
+            fn size_hint(& $self) -> (usize, Option<usize>) {
+                // Not optimal implementation, basically, always returns lower bound = 0, upper bound = map.len().
+                (0, Some($self.nodes.len()))
+            }
         }
 
         impl<'a, T: PartialOrd + Copy, V, R: RangeBounds<T>, Ix: IndexType> FusedIterator for $name<'a, T, V, R, Ix> { }
@@ -248,6 +253,11 @@ impl<T: PartialOrd + Copy, V, R: RangeBounds<T>, Ix: IndexType> Iterator for Int
             Some((self.nodes[self.index.get()].interval.to_range(), value))
         }
     }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        // Not optimal implementation, basically, always returns lower bound = 0, upper bound = map.len().
+        (0, Some(self.nodes.len()))
+    }
 }
 
 impl<T: PartialOrd + Copy, V, R: RangeBounds<T>, Ix: IndexType> FusedIterator for IntoIter<T, V, R, Ix> { }
@@ -270,6 +280,11 @@ impl<T: PartialOrd + Copy, Ix: IndexType> Iterator for IntoIterSet<T, Ix> {
 
     fn next(&mut self) -> Option<Self::Item> {
         self.inner.next().map(|(range, _)| range)
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        // Not optimal implementation, basically, always returns lower bound = 0, upper bound = map.len().
+        (0, Some(self.inner.nodes.len()))
     }
 }
 

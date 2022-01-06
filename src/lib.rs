@@ -377,6 +377,24 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
         }
     }
 
+    /// Returns number of elements in the map.
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.nodes.len()
+    }
+
+    /// Returns `true` if the map contains no elements.
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.nodes.is_empty()
+    }
+
+    /// Clears the map, removing all values. This method has no effect on the allocated capacity.
+    pub fn clear(&mut self) {
+        self.nodes.clear();
+        self.root = Ix::MAX;
+    }
+
     /// Shrinks inner contents.
     pub fn shrink_to_fit(&mut self) {
         self.nodes.shrink_to_fit();
@@ -737,6 +755,7 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
     }
 
     /// Returns value associated with `interval` (exact match).
+    /// If there are multiple matches, returns a value associated with any of them (order is unspecified).
     /// If there is no such interval, returns `None`.
     pub fn get(&self, interval: Range<T>) -> Option<&V> {
         let index = self.find_index(&interval);
@@ -747,7 +766,8 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
         }
     }
 
-    /// Returns value associated with `interval` (exact match).
+    /// Returns mutable value associated with `interval` (exact match).
+    /// If there are multiple matches, returns a value associated with any of them (order is unspecified).
     /// If there is no such interval, returns `None`.
     pub fn get_mut(&mut self, interval: Range<T>) -> Option<&mut V> {
         let index = self.find_index(&interval);
@@ -1011,6 +1031,24 @@ impl<T: PartialOrd + Copy, Ix: IndexType> IntervalSet<T, Ix> {
         Self {
             inner: IntervalMap::with_capacity(capacity),
         }
+    }
+
+    /// Returns number of elements in the set.
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.inner.len()
+    }
+
+    /// Returns `true` if the set contains no elements.
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.inner.is_empty()
+    }
+
+    /// Clears the set, removing all values. This method has no effect on the allocated capacity.
+    #[inline]
+    pub fn clear(&mut self) {
+        self.inner.clear()
     }
 
     /// Shrinks inner contents.

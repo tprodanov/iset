@@ -377,6 +377,48 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
         }
     }
 
+    /// Initializes map within indices [start, end) in case of sorted nodes.
+    fn init_from_sorted(&mut self, start: usize, end: usize) -> Ix {
+        assert!(start < end);
+        if start + 1 == end {
+            self.nodes[start].set_red();
+            return Ix::new(start).unwrap();
+        }
+
+        let center = (start + end) / 2;
+        let center_ix = Ix::new(center).unwrap();
+        if start < center {
+            let left_ix = self.init_from_sorted(start, center);
+            self.nodes[center].left = left_ix;
+            self.nodes[left_ix.get()].parent = center_ix;
+        }
+        if center + 1 < end {
+            let right_ix = self.init_from_sorted(center + 1, end);
+            self.nodes[center].right = right_ix;
+            self.nodes[right_ix.get()].parent = center_ix;
+        }
+        self.update_subtree_interval(center_ix);
+        center_ix
+    }
+
+    /// Creates an interval map from a sorted iterator over pairs `(range, value)`.
+    pub fn from_sorted<I: Iterator<Item = (Range<T>, V)>>(iter: I) -> Self {
+        let mut map = Self {
+            nodes: iter.map(|(range, value)| Node::new(range, value)).collect(),
+            root: Ix::MAX,
+        };
+        let n = map.nodes.len();
+        for i in 1..n {
+            assert!(map.nodes[i - 1].interval <= map.nodes[i].interval,
+                "Cannot construct interval map from sorted nodes: intervals at positions {} and {} are unordered!",
+                i, i + 1);
+        }
+        if n > 0 {
+            map.root = map.init_from_sorted(0, n);
+        }
+        map
+    }
+
     /// Returns number of elements in the map.
     #[inline]
     pub fn len(&self) -> usize {
@@ -1030,6 +1072,13 @@ impl<T: PartialOrd + Copy, Ix: IndexType> IntervalSet<T, Ix> {
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
             inner: IntervalMap::with_capacity(capacity),
+        }
+    }
+
+    /// Creates an interval set from a sorted iterator over intervals.
+    pub fn from_sorted<I: Iterator<Item = Range<T>>>(iter: I) -> Self {
+        Self {
+            inner: IntervalMap::from_sorted(iter.map(|range| (range, ()))),
         }
     }
 

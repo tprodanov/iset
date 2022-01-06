@@ -1,14 +1,11 @@
 use core::ops::{Range, RangeInclusive, RangeBounds};
-use core::fmt::{self, Debug, Display, Formatter};
+use core::fmt::{self, Debug, Formatter};
+#[cfg(feature = "dot")]
+use core::fmt::Display;
 #[cfg(feature = "dot")]
 use std::io::{self, Write};
 #[cfg(feature = "serde")]
-use {
-    core::marker::PhantomData,
-    serde::{Serialize, Serializer, Deserialize, Deserializer},
-    serde::ser::{SerializeTuple, SerializeSeq},
-    serde::de::{Visitor, SeqAccess},
-};
+use serde::{Serialize, Serializer, Deserialize, Deserializer};
 
 use super::IntervalMap;
 use super::ix::{IndexType, DefaultIx};

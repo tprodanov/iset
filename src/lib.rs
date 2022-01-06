@@ -305,6 +305,22 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> Default for IntervalMap<T, V, Ix> {
     }
 }
 
+// #[cfg(not(std))]
+fn calculate_max_depth(mut n: usize) -> u16 {
+    // Same as `((n + 1) as f64).log2().ceil() as u16`, but without std.
+    let mut depth = 0;
+    while n > 0 {
+        n >>= 1;
+        depth += 1;
+    }
+    depth
+}
+
+#[cfg(std)]
+fn calculate_max_depth(n: usize) -> u16 {
+    ((n + 1) as f64).log2().ceil() as u16
+}
+
 impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
     /// Creates an empty [IntervalMap](struct.IntervalMap.html) with `capacity`.
     pub fn with_capacity(capacity: usize) -> Self {
@@ -355,7 +371,7 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
                 i, i + 1);
         }
         if n > 0 {
-            let max_depth = ((n + 1) as f64).log2().ceil() as u16;
+            let max_depth = calculate_max_depth(n);
             map.root = map.init_from_sorted(0, n, max_depth);
         }
         map

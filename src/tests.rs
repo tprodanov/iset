@@ -298,7 +298,7 @@ where
 
 #[test]
 fn test_int_inserts() {
-    const COUNT: u32 = 10000;
+    const COUNT: u32 = 1000;
     let mut naive = NaiveIntervalMap::new();
     let mut tree = IntervalMap::new();
     let mut generator = generate_int(0, 100);
@@ -323,7 +323,7 @@ fn test_int_inserts() {
 
 #[test]
 fn test_float_inserts() {
-    const COUNT: u32 = 10000;
+    const COUNT: u32 = 1000;
     let mut naive = NaiveIntervalMap::new();
     let mut tree = IntervalMap::new();
     let mut generator = generate_float(0.0, 1.0);
@@ -343,6 +343,25 @@ fn test_float_inserts() {
     search_rand(&mut naive, &mut tree, COUNT, generate_range_incl(&mut generator), &history);
     search_rand(&mut naive, &mut tree, COUNT, generate_range_to(&mut generator), &history);
     search_rand(&mut naive, &mut tree, COUNT, generate_range_to_incl(&mut generator), &history);
+}
+
+#[test]
+fn test_from_sorted() {
+    const COUNT: u32 = 1000;
+    let mut vec = Vec::new();
+    let mut map: IntervalMap<_, _, u32> = IntervalMap::from_sorted(vec.clone().into_iter());
+    check(&map);
+
+    for i in 0..COUNT {
+        vec.push((i..i+1, i));
+        map = IntervalMap::from_sorted(vec.clone().into_iter());
+        assert_eq!(map.len(), vec.len());
+        check(&map);
+    }
+
+    for (range, value) in vec {
+        assert_eq!(map.get(range), Some(&value));
+    }
 }
 
 #[cfg(feature = "serde")]

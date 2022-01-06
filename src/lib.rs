@@ -378,22 +378,26 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
     }
 
     /// Initializes map within indices [start, end) in case of sorted nodes.
-    fn init_from_sorted(&mut self, start: usize, end: usize) -> Ix {
-        assert!(start < end);
+    /// rev_depth: inverse depth (top recursion call has high rev_depth, lowest recursion call has rev_depth == 1).
+    fn init_from_sorted(&mut self, start: usize, end: usize, rev_depth: u16) -> Ix {
+        debug_assert!(start < end);
         if start + 1 == end {
-            self.nodes[start].set_red();
+            if rev_depth > 1 {
+                self.nodes[start].set_black();
+            }
             return Ix::new(start).unwrap();
         }
 
         let center = (start + end) / 2;
+        self.nodes[center].set_black();
         let center_ix = Ix::new(center).unwrap();
         if start < center {
-            let left_ix = self.init_from_sorted(start, center);
+            let left_ix = self.init_from_sorted(start, center, rev_depth - 1);
             self.nodes[center].left = left_ix;
             self.nodes[left_ix.get()].parent = center_ix;
         }
         if center + 1 < end {
-            let right_ix = self.init_from_sorted(center + 1, end);
+            let right_ix = self.init_from_sorted(center + 1, end, rev_depth - 1);
             self.nodes[center].right = right_ix;
             self.nodes[right_ix.get()].parent = center_ix;
         }
@@ -401,7 +405,7 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
         center_ix
     }
 
-    /// Creates an interval map from a sorted iterator over pairs `(range, value)`.
+    /// Creates an interval map from a sorted iterator over pairs `(range, value)`. Takes $O(n)$.
     pub fn from_sorted<I: Iterator<Item = (Range<T>, V)>>(iter: I) -> Self {
         let mut map = Self {
             nodes: iter.map(|(range, value)| Node::new(range, value)).collect(),
@@ -414,7 +418,8 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
                 i, i + 1);
         }
         if n > 0 {
-            map.root = map.init_from_sorted(0, n);
+            let max_depth = ((n + 1) as f64).log2().ceil() as u16;
+            map.root = map.init_from_sorted(0, n, max_depth);
         }
         map
     }
@@ -1075,7 +1080,7 @@ impl<T: PartialOrd + Copy, Ix: IndexType> IntervalSet<T, Ix> {
         }
     }
 
-    /// Creates an interval set from a sorted iterator over intervals.
+    /// Creates an interval set from a sorted iterator over intervals. Takes $O(n)$.
     pub fn from_sorted<I: Iterator<Item = Range<T>>>(iter: I) -> Self {
         Self {
             inner: IntervalMap::from_sorted(iter.map(|range| (range, ()))),

@@ -7,7 +7,7 @@ use core::fmt::Display;
 /// index type (`u32`). `IntervalMap` or `IntervalSet` can store up to `Ix::MAX - 1` elements.
 ///
 /// Using smaller index type saves memory usage and may reduce running time.
-pub trait IndexType: Copy + Display + Sized + Eq {
+pub trait IndexType: Copy + Display + Sized + Eq + Ord {
     /// Undefined index. There can be no indices higher than MAX.
     const MAX: Self;
 
@@ -63,6 +63,5 @@ impl_index!(u8);
 impl_index!(u16);
 impl_index!(u32);
 impl_index!(u64);
-impl_index!(u128);
 /// Default index type.
 pub type DefaultIx = u32;

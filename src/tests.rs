@@ -6,6 +6,7 @@ use std::string::String;
 use std::ops::{self, Range, RangeBounds, Bound};
 use std::fmt::{Debug, Write};
 use std::fs::File;
+use std::path::Path;
 use rand::prelude::*;
 use bit_vec::BitVec;
 
@@ -304,7 +305,7 @@ fn test_int_inserts() {
     let mut generator = generate_int(0, 100);
     let history = modify_maps(&mut naive, &mut tree, COUNT, generate_range(&mut generator));
 
-    let output_path = std::path::Path::new("tests/data/int.dot");
+    let output_path = Path::new("tests/data/int.dot");
     let folders = output_path.parent().unwrap();
     std::fs::create_dir_all(folders).unwrap();
     let f = File::create(output_path).unwrap();
@@ -329,7 +330,7 @@ fn test_float_inserts() {
     let mut generator = generate_float(0.0, 1.0);
     let history = modify_maps(&mut naive, &mut tree, COUNT, generate_range(&mut generator));
 
-    let output_path = std::path::Path::new("tests/data/float.dot");
+    let output_path = Path::new("tests/data/float.dot");
     let folders = output_path.parent().unwrap();
     std::fs::create_dir_all(folders).unwrap();
     let f = File::create(output_path).unwrap();
@@ -372,7 +373,7 @@ fn test_serde() {
     let mut tree: IntervalMap<i32, u32> = IntervalMap::new();
     let history = modify_maps(&mut naive, &mut tree, COUNT, generate_int(0..10000));
 
-    let json_path = std::path::Path::new("tests/data/serde.json");
+    let json_path = Path::new("tests/data/serde.json");
     let folders = json_path.parent().unwrap();
     std::fs::create_dir_all(folders).unwrap();
     let output = File::create(json_path).unwrap();

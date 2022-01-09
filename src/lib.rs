@@ -22,9 +22,7 @@
 //! This crate supports serialization/deserialization using an optional feature `serde`.
 
 // TODO:
-// - deletion
 // - union, split
-// - exact query match
 
 #![no_std]
 
@@ -39,6 +37,7 @@ pub mod iter;
 pub mod set;
 #[cfg(test)]
 mod tests;
+mod tree_rm;
 
 use alloc::vec::Vec;
 use core::ops::{Range, RangeFull, RangeInclusive, RangeBounds, Bound};
@@ -165,6 +164,13 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> Node<T, V, Ix> {
     fn set_black(&mut self) {
         self.red_color = false;
     }
+
+    /// Swaps values and intervals between two mutable nodes.
+    fn swap_with(&mut self, other: &mut Self) {
+        core::mem::swap(&mut self.value, &mut other.value);
+        core::mem::swap(&mut self.interval, &mut other.interval);
+        core::mem::swap(&mut self.subtree_interval, &mut other.subtree_interval);
+    }
 }
 
 #[cfg(feature = "dot")]
@@ -198,7 +204,7 @@ impl<T: PartialOrd + Copy + Display, V, Ix: IndexType> Node<T, V, Ix> {
     }
 }
 
-fn check_interval<T: PartialOrd>(start: &T, end: &T) {
+fn check_interval<T: PartialOrd + Copy>(start: T, end: T) {
     if start < end {
         assert!(end > start, "Interval cannot be ordered (`start < end` but not `end > start`)");
     } else if end <= start {
@@ -208,7 +214,7 @@ fn check_interval<T: PartialOrd>(start: &T, end: &T) {
     }
 }
 
-fn check_interval_incl<T: PartialOrd>(start: &T, end: &T) {
+fn check_interval_incl<T: PartialOrd + Copy>(start: T, end: T) {
     if start <= end {
         assert!(end >= start, "Interval cannot be ordered (`start < end` but not `end > start`)");
     } else if end < start {
@@ -401,17 +407,15 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
     }
 
     fn update_subtree_interval(&mut self, index: Ix) {
-        let left = self.nodes[index.get()].left;
-        let right = self.nodes[index.get()].right;
-
-        let mut new_interval = self.nodes[index.get()].interval.clone();
-        if left.defined() {
-            new_interval.extend(&self.nodes[left.get()].subtree_interval);
+        let node = &self.nodes[index.get()];
+        let mut subtree_interval = node.interval.clone();
+        if node.left.defined() {
+            subtree_interval.extend(&self.nodes[node.left.get()].subtree_interval);
         }
-        if right.defined() {
-            new_interval.extend(&self.nodes[right.get()].subtree_interval);
+        if node.right.defined() {
+            subtree_interval.extend(&self.nodes[node.right.get()].subtree_interval);
         }
-        self.nodes[index.get()].subtree_interval = new_interval;
+        self.nodes[index.get()].subtree_interval = subtree_interval;
     }
 
     fn sibling(&self, index: Ix) -> Ix {
@@ -538,7 +542,7 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
     /// Panics if `interval` is empty (`start >= end`)
     /// or contains a value that cannot be compared (such as `NAN`).
     pub fn insert(&mut self, interval: Range<T>, value: V) {
-        check_interval(&interval.start, &interval.end);
+        check_interval(interval.start, interval.end);
         let new_ind = Ix::new(self.nodes.len()).unwrap_or_else(|e| panic!("{}", e));
         let mut new_node = Node::new(interval, value);
         if !self.root.defined() {
@@ -567,50 +571,6 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
         self.nodes.push(new_node);
         self.insert_repair(new_ind);
     }
-
-    #[allow(dead_code)]
-    fn change_index(&mut self, old: Ix, new: Ix) {
-        let left = self.nodes[old.get()].left;
-        let right = self.nodes[old.get()].right;
-        let parent = self.nodes[old.get()].parent;
-        if left.defined() {
-            self.nodes[left.get()].parent = new;
-        }
-        if right.defined() {
-            self.nodes[right.get()].parent = new;
-        }
-        if parent.defined() {
-            if self.nodes[parent.get()].left == old {
-                self.nodes[parent.get()].left = new;
-            } else {
-                self.nodes[parent.get()].right = new;
-            }
-        }
-    }
-
-    // fn remove_element(&mut self, i: usize) -> V {
-    //     let left = self.nodes[i].left;
-    //     let right = self.nodes[i].right;
-    //     let parent = self.nodes[i].parent;
-
-
-    // }
-
-    // pub fn remove(&mut self, interval: Range<T>) -> Option<V> {
-    //     let interval = Interval::new(&interval);
-    //     let mut i = self.root;
-    //     while i != MAX {
-    //         if self.nodes[i].interval == interval {
-    //             return Some(self.remove_element(i));
-    //         }
-    //         i = if interval <= self.nodes[i].interval {
-    //             self.nodes[i].left
-    //         } else {
-    //             self.nodes[i].right
-    //         };
-    //     }
-    //     None
-    // }
 
     /// Iterates over pairs `(x..y, &value)` that overlap the `query`.
     /// Takes *O(log N + K)* where *K* is the size of the output.
@@ -735,6 +695,7 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
     }
 
     fn find_index(&self, interval: &Range<T>) -> Ix {
+        check_interval(interval.start, interval.end);
         let interval = Interval::new(interval);
         let mut index = self.root;
         while index.defined() {
@@ -953,9 +914,10 @@ where
 /// ```
 #[macro_export]
 macro_rules! interval_map {
-    ( $( $k:expr => $v:expr ),* ) => {
+    ( () ) => ( $crate::IntervalMap::new() );
+    ( $( $k:expr => $v:expr ),* $(,)? ) => {
         {
-            let mut _temp_map = iset::IntervalMap::new();
+            let mut _temp_map = $crate::IntervalMap::new();
             $(
                 _temp_map.insert($k, $v);
             )*
@@ -974,9 +936,10 @@ macro_rules! interval_map {
 /// ```
 #[macro_export]
 macro_rules! interval_set {
-    ( $( $k:expr ),* ) => {
+    ( () ) => ( $crate::IntervalSet::new() );
+    ( $( $k:expr ),* $(,)? ) => {
         {
-            let mut _temp_set = iset::IntervalSet::new();
+            let mut _temp_set = $crate::IntervalSet::new();
             $(
                 _temp_set.insert($k);
             )*

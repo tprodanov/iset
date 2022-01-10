@@ -2,13 +2,16 @@
 
 use core::fmt::Display;
 
-/// Trait for index types: used in the inner representation of [IntervalMap](struct.IntervalMap.html) and
-/// [IntervalSet](struct.IntervalSet.html).
+/// Trait for index types: used in the inner representation of [IntervalMap](../struct.IntervalMap.html) and
+/// [IntervalSet](../set/struct.IntervalSet.html).
 ///
-/// Implemented for `u8`, `u16`, `u32` and `u64`. [DefaultIx](type.DefaultIx.html) is an alias for default
-/// index type (`u32`). `IntervalMap` or `IntervalSet` can store up to `Ix::MAX - 1` elements.
+/// Implemented for `u8`, `u16`, `u32` and `u64`,
+/// `u32` is used by default ([DefaultIx](type.DefaultIx.html)).
 ///
-/// Using smaller index type saves memory usage and may reduce running time.
+/// `IntervalMap` or `IntervalSet` can store up to `Ix::MAX - 1` elements
+/// (for example `IntervalMap<_, _, u8>` can store up to 255 items).
+///
+/// Using smaller index types saves memory and slightly reduces running time.
 pub trait IndexType: Copy + Display + Sized + Eq + Ord {
     /// Undefined index. There can be no indices higher than MAX.
     const MAX: Self;

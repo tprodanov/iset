@@ -274,7 +274,7 @@ fn check_interval_incl<T: PartialOrd + Copy>(start: T, end: T) {
 ///                                        .into_iter().collect();
 /// ```
 ///
-/// You can also construct [IntervalMap](struct.IntervalMap.html) using [interval_map](macro.interval_map.html) macro:
+/// You can also construct [IntervalMap](struct.IntervalMap.html) using [interval_map!](macro.interval_map.html) macro:
 /// ```rust
 /// #[macro_use] extern crate iset;
 ///
@@ -286,8 +286,9 @@ fn check_interval_incl<T: PartialOrd + Copy>(start: T, end: T) {
 /// # Index types:
 /// You can specify [index type](ix/trait.IndexType.html) (`u8`, `u16`, `u32` and `u64`) used in the inner
 /// representation of `IntervalMap` ([iset::DefaultIx](ix/type.DefaultIx.html) = u32`).
+/// Using smaller index types saves memory and slightly reduces running time.
 ///
-/// Method [new](#method.new), macro [interval_map](macro.interval_map.html) or function
+/// Method [new](#method.new), macro [interval_map!](macro.interval_map.html) or function
 /// `collect()` create `IntervalMap` with index type `u32`. If you wish to use another index type you can use
 /// methods [default](#method.default) or [with_capacity](#method.with_capacity). For example:
 /// ```rust
@@ -550,8 +551,7 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
 
     /// Inserts an interval `x..y` and its value. Takes *O(log N)*.
     ///
-    /// Panics if `interval` is empty (`start >= end`)
-    /// or contains a value that cannot be compared (such as `NAN`).
+    /// Panics if `interval` is empty (`start >= end`) or contains a value that cannot be compared (such as `NAN`).
     pub fn insert(&mut self, interval: Range<T>, value: V) {
         check_interval(interval.start, interval.end);
         let new_ind = Ix::new(self.nodes.len()).unwrap_or_else(|e| panic!("{}", e));
@@ -600,6 +600,8 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
     }
 
     /// Check if the interval map contains `interval` (exact match).
+    ///
+    /// Panics if `interval` is empty (`start >= end`) or contains a value that cannot be compared (such as `NAN`).
     pub fn contains(&self, interval: Range<T>) -> bool {
         self.find_index(&interval).defined()
     }
@@ -607,6 +609,8 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
     /// Returns value associated with `interval` (exact match).
     /// If there are multiple matches, returns a value associated with any of them (order is unspecified).
     /// If there is no such interval, returns `None`.
+    ///
+    /// Panics if `interval` is empty (`start >= end`) or contains a value that cannot be compared (such as `NAN`).
     pub fn get(&self, interval: Range<T>) -> Option<&V> {
         let index = self.find_index(&interval);
         if index.defined() {
@@ -619,6 +623,8 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
     /// Returns mutable value associated with `interval` (exact match).
     /// If there are multiple matches, returns a value associated with any of them (order is unspecified).
     /// If there is no such interval, returns `None`.
+    ///
+    /// Panics if `interval` is empty (`start >= end`) or contains a value that cannot be compared (such as `NAN`).
     pub fn get_mut(&mut self, interval: Range<T>) -> Option<&mut V> {
         let index = self.find_index(&interval);
         if index.defined() {
@@ -631,6 +637,8 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
     /// Removes an entry, associated with `interval` (exact match is required), takes *O(log N)*.
     /// Returns value if the interval was present in the map, and None otherwise.
     /// If several intervals match the query interval, removes any one of them (order is unspecified).
+    ///
+    /// Panics if `interval` is empty (`start >= end`) or contains a value that cannot be compared (such as `NAN`).
     pub fn remove(&mut self, interval: Range<T>) -> Option<V> {
         self.remove_at(self.find_index(&interval))
     }

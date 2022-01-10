@@ -25,7 +25,7 @@
 // - union, split
 // - unsorted_iter
 // - remove by value
-// - macro with index type
+// - try to use bitvec to store colors
 
 #![no_std]
 
@@ -81,6 +81,7 @@ impl<T: PartialOrd + Copy> Interval<T> {
         }
     }
 
+    #[inline]
     fn to_range(&self) -> Range<T> {
         self.start..self.end
     }
@@ -377,6 +378,8 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
     }
 
     /// Creates an interval map from a sorted iterator over pairs `(range, value)`. Takes *O(N)*.
+    ///
+    /// Panics if the intervals are not sorted.
     pub fn from_sorted<I: Iterator<Item = (Range<T>, V)>>(iter: I) -> Self {
         let mut map = Self {
             nodes: iter.map(|(range, value)| Node::new(range, value)).collect(),
@@ -763,6 +766,37 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
     /// See [iter](#method.iter) for more details.
     pub fn values_overlap_mut<'a>(&'a mut self, point: T) -> ValuesMut<'a, T, V, RangeInclusive<T>, Ix> {
         ValuesMut::new(self, point..=point)
+    }
+
+    /// Creates an unsorted iterator over all pairs `(x..y, &value)`.
+    /// Slightly faster than the sorted iterator, although both take *O(N)*.
+    pub fn unsorted_iter<'a>(&'a self) -> UnsIter<'a, T, V, Ix> {
+        UnsIter::new(self)
+    }
+
+    /// Creates an unsorted iterator over all intervals `x..y`.
+    pub fn unsorted_intervals<'a>(&'a self) -> UnsIntervals<'a, T, V, Ix> {
+        UnsIntervals::new(self)
+    }
+
+    /// Creates an unsorted iterator over all values `&value`.
+    pub fn unsorted_values<'a>(&'a self) -> UnsValues<'a, T, V, Ix> {
+        UnsValues::new(self)
+    }
+
+    /// Creates an unsorted iterator over all pairs `(x..y, &mut value)`.
+    pub fn unsorted_iter_mut<'a>(&'a mut self) -> UnsIterMut<'a, T, V, Ix> {
+        UnsIterMut::new(self)
+    }
+
+    /// Creates an unsorted iterator over all mutable values `&mut value`.
+    pub fn unsorted_values_mut<'a>(&'a mut self) -> UnsValuesMut<'a, T, V, Ix> {
+        UnsValuesMut::new(self)
+    }
+
+    /// Consumes `IntervalMap` and creates an unsorted iterator over all pairs `(x..y, value)`.
+    pub fn unsorted_into_iter(self) -> UnsIntoIter<T, V, Ix> {
+        UnsIntoIter::new(self)
     }
 }
 

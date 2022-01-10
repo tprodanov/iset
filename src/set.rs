@@ -104,6 +104,8 @@ impl<T: PartialOrd + Copy, Ix: IndexType> IntervalSet<T, Ix> {
     }
 
     /// Creates an interval set from a sorted iterator over intervals. Takes *O(N)*.
+    ///
+    /// Panics if the intervals are not sorted.
     pub fn from_sorted<I: Iterator<Item = Range<T>>>(iter: I) -> Self {
         Self {
             inner: IntervalMap::from_sorted(iter.map(|range| (range, ()))),
@@ -181,14 +183,31 @@ impl<T: PartialOrd + Copy, Ix: IndexType> IntervalSet<T, Ix> {
     pub fn overlap<'a>(&'a self, point: T) -> Intervals<'a, T, (), RangeInclusive<T>, Ix> {
         self.inner.intervals(point..=point)
     }
+
+    /// Consumes [IntervalSet](struct.IntervalSet.html) and iterates over intervals `x..y` that overlap the `query`.
+    /// See [iter](#method.iter) for more details.
+    pub fn into_iter<R: RangeBounds<T>>(self, query: R) -> IntoIterSet<T, (), R, Ix> {
+        IntoIterSet::new(self.inner, query)
+    }
+
+    /// Creates an unsorted iterator over all intervals `x..y`.
+    /// Slightly faster than the sorted iterator, although both take *O(N)*.
+    pub fn unsorted_iter<'a>(&'a self) -> UnsIntervals<'a, T, (), Ix> {
+        UnsIntervals::new(&self.inner)
+    }
+
+    /// Consumes `IntervalSet` and creates an unsorted iterator over all intervals `x..y`.
+    pub fn unsorted_into_iter(self) -> UnsIntoIterSet<T, (), Ix> {
+        UnsIntoIterSet::new(self.inner)
+    }
 }
 
 impl<T: PartialOrd + Copy, Ix: IndexType> core::iter::IntoIterator for IntervalSet<T, Ix> {
-    type IntoIter = IntoIterSet<T, Ix>;
+    type IntoIter = IntoIterSet<T, (), core::ops::RangeFull, Ix>;
     type Item = Range<T>;
 
     fn into_iter(self) -> Self::IntoIter {
-        IntoIterSet::new(self.inner)
+        IntoIterSet::new(self.inner, ..)
     }
 }
 

@@ -1,7 +1,7 @@
 //! Module with various iterators over `IntervalMap` and `IntervalSet`.
 
 use alloc::vec::Vec;
-use core::ops::{Range, RangeFull, RangeBounds, Bound};
+use core::ops::{Range, RangeBounds, Bound};
 use core::iter::FusedIterator;
 use core::mem;
 use bit_vec::BitVec;
@@ -47,7 +47,7 @@ where T: PartialOrd + Copy,
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct ActionStack(BitVec);
 
 impl ActionStack {
@@ -143,44 +143,45 @@ where T: PartialOrd + Copy,
 macro_rules! iterator {
     (
         $(#[$outer:meta])*
-        struct $name:ident -> $item:ty,
-        $self:ident -> $out:expr, {$( $mut_:tt )*}
+        struct $name:ident -> $elem:ty,
+        $node:ident -> $out:expr, {$( $mut_:tt )?}
     ) => {
         $(#[$outer])*
         pub struct $name<'a, T: PartialOrd + Copy, V, R: RangeBounds<T>, Ix: IndexType> {
             index: Ix,
             range: R,
-            nodes: &'a $( $mut_ )* [Node<T, V, Ix>],
+            nodes: &'a $( $mut_ )? [Node<T, V, Ix>],
             stack: ActionStack,
         }
 
         impl<'a, T: PartialOrd + Copy, V, R: RangeBounds<T>, Ix: IndexType> $name<'a, T, V, R, Ix> {
-            pub(crate) fn new(tree: &'a $( $mut_ )* IntervalMap<T, V, Ix>, range: R) -> Self {
+            pub(crate) fn new(tree: &'a $( $mut_ )? IntervalMap<T, V, Ix>, range: R) -> Self {
                 check_ordered(&range);
                 Self {
                     index: tree.root,
                     range,
-                    nodes: & $( $mut_ )* tree.nodes,
+                    nodes: & $( $mut_ )? tree.nodes,
                     stack: ActionStack::new(),
                 }
             }
         }
 
         impl<'a, T: PartialOrd + Copy, V, R: RangeBounds<T>, Ix: IndexType> Iterator for $name<'a, T, V, R, Ix> {
-            type Item = $item;
+            type Item = $elem;
 
-            fn next(&mut $self) -> Option<Self::Item> {
-                $self.index = move_to_next($self.nodes, $self.index, &$self.range, &mut $self.stack);
-                if !$self.index.defined() {
+            fn next(&mut self) -> Option<Self::Item> {
+                self.index = move_to_next(self.nodes, self.index, &self.range, &mut self.stack);
+                if !self.index.defined() {
                     None
                 } else {
+                    let $node = & $( $mut_ )? self.nodes[self.index.get()];
                     Some($out)
                 }
             }
 
-            fn size_hint(& $self) -> (usize, Option<usize>) {
+            fn size_hint(& self) -> (usize, Option<usize>) {
                 // Not optimal implementation, basically, always returns lower bound = 0, upper bound = map.len().
-                (0, Some($self.nodes.len()))
+                (0, Some(self.nodes.len()))
             }
         }
 
@@ -190,102 +191,257 @@ macro_rules! iterator {
 
 iterator! {
     #[doc="Iterator over pairs `(x..y, &value)`."]
+    #[derive(Clone, Debug)]
     struct Iter -> (Range<T>, &'a V),
-    self -> (self.nodes[self.index.get()].interval.to_range(), &self.nodes[self.index.get()].value), { /* no mut */ }
+    node -> (node.interval.to_range(), &node.value), { /* no mut */ }
 }
 
 iterator! {
     #[doc="Iterator over intervals `x..y`."]
+    #[derive(Clone, Debug)]
     struct Intervals -> Range<T>,
-    self -> self.nodes[self.index.get()].interval.to_range(), { /* no mut */ }
+    node -> node.interval.to_range(), { /* no mut */ }
 }
 
 iterator! {
     #[doc="Iterator over values."]
+    #[derive(Clone, Debug)]
     struct Values -> &'a V,
-    self -> &self.nodes[self.index.get()].value, { /* no mut */ }
+    node -> &node.value, { /* no mut */ }
 }
 
 iterator! {
     #[doc="Iterator over pairs `(x..y, &mut value)`."]
+    #[derive(Debug)]
     struct IterMut -> (Range<T>, &'a mut V),
-    self -> (self.nodes[self.index.get()].interval.to_range(),
-        unsafe { &mut *(&mut self.nodes[self.index.get()].value as *mut V) }), { mut }
+    node -> (node.interval.to_range(), unsafe { &mut *(&mut node.value as *mut V) }), { mut }
 }
 
 iterator! {
     #[doc="Iterator over mutable values."]
+    #[derive(Debug)]
     struct ValuesMut -> &'a mut V,
-    self -> unsafe { &mut *(&mut self.nodes[self.index.get()].value as *mut V) }, { mut }
+    node -> unsafe { &mut *(&mut node.value as *mut V) }, { mut }
 }
 
-/// Iterator over pairs `(x..y, value)`. Takes ownership of `IntervalMap`.
-pub struct IntoIter<T: PartialOrd + Copy, V, R: RangeBounds<T>, Ix: IndexType> {
-    index: Ix,
-    range: R,
-    nodes: Vec<Node<T, V, Ix>>,
-    stack: ActionStack,
-}
-
-impl<T: PartialOrd + Copy, V, R: RangeBounds<T>, Ix: IndexType> IntoIter<T, V, R, Ix> {
-    pub(crate) fn new(tree: IntervalMap<T, V, Ix>, range: R) -> Self {
-        check_ordered(&range);
-        let index = tree.root;
-        Self {
-            index,
-            range,
-            nodes: tree.nodes,
-            stack: ActionStack::new(),
+/// Macro that generates IntoIterator over IntervalMap.
+macro_rules! into_iterator {
+    (
+        $(#[$outer:meta])*
+        struct $name:ident -> $elem:ty,
+        $node:ident -> $out:expr
+    ) => {
+        $(#[$outer])*
+        pub struct $name<T: PartialOrd + Copy, V, R: RangeBounds<T>, Ix: IndexType> {
+            index: Ix,
+            range: R,
+            nodes: Vec<Node<T, V, Ix>>,
+            stack: ActionStack,
         }
-    }
-}
 
-impl<T: PartialOrd + Copy, V, R: RangeBounds<T>, Ix: IndexType> Iterator for IntoIter<T, V, R, Ix> {
-    type Item = (Range<T>, V);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.index = move_to_next(&self.nodes, self.index, &self.range, &mut self.stack);
-        if !self.index.defined() {
-            None
-        } else {
-            // Replace value with zeroed value, it must not be accessed anymore.
-            let value = mem::replace(&mut self.nodes[self.index.get()].value, unsafe { mem::zeroed() });
-            Some((self.nodes[self.index.get()].interval.to_range(), value))
+        impl<T: PartialOrd + Copy, V, R: RangeBounds<T>, Ix: IndexType> $name<T, V, R, Ix> {
+            pub(crate) fn new(tree: IntervalMap<T, V, Ix>, range: R) -> Self {
+                check_ordered(&range);
+                Self {
+                    index: tree.root,
+                    range,
+                    nodes: tree.nodes,
+                    stack: ActionStack::new(),
+                }
+            }
         }
-    }
 
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        // Not optimal implementation, basically, always returns lower bound = 0, upper bound = map.len().
-        (0, Some(self.nodes.len()))
-    }
-}
+        impl<T: PartialOrd + Copy, V, R: RangeBounds<T>, Ix: IndexType> Iterator for $name<T, V, R, Ix> {
+            type Item = $elem;
 
-impl<T: PartialOrd + Copy, V, R: RangeBounds<T>, Ix: IndexType> FusedIterator for IntoIter<T, V, R, Ix> { }
+            fn next(&mut self) -> Option<Self::Item> {
+                self.index = move_to_next(&self.nodes, self.index, &self.range, &mut self.stack);
+                if !self.index.defined() {
+                    None
+                } else {
+                    let $node = &mut self.nodes[self.index.get()];
+                    Some($out)
+                }
+            }
 
-/// Iterator over pairs `x..y`. Takes ownership of `IntervalSet`.
-pub struct IntoIterSet<T: PartialOrd + Copy, Ix: IndexType> {
-    inner: IntoIter<T, (), RangeFull, Ix>,
-}
-
-impl<T: PartialOrd + Copy, Ix: IndexType> IntoIterSet<T, Ix> {
-    pub(crate) fn new(tree: IntervalMap<T, (), Ix>) -> Self {
-        Self {
-            inner: IntoIter::new(tree, ..),
+            fn size_hint(& self) -> (usize, Option<usize>) {
+                // Not optimal implementation, basically, always returns lower bound = 0, upper bound = map.len().
+                (0, Some(self.nodes.len()))
+            }
         }
-    }
+
+        impl<T: PartialOrd + Copy, V, R: RangeBounds<T>, Ix: IndexType> FusedIterator for $name<T, V, R, Ix> { }
+    };
 }
 
-impl<T: PartialOrd + Copy, Ix: IndexType> Iterator for IntoIterSet<T, Ix> {
-    type Item = Range<T>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.inner.next().map(|(range, _)| range)
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        // Not optimal implementation, basically, always returns lower bound = 0, upper bound = map.len().
-        (0, Some(self.inner.nodes.len()))
-    }
+into_iterator! {
+    #[doc="Iterator over pairs `(x..y, value)`. Takes ownership of `IntervalMap`."]
+    #[derive(Debug)]
+    struct IntoIter -> (Range<T>, V),
+    node -> (node.interval.to_range(), mem::replace(&mut node.value, unsafe { mem::zeroed() }))
 }
 
-impl<T: PartialOrd + Copy, Ix: IndexType> FusedIterator for IntoIterSet<T, Ix> { }
+into_iterator! {
+    #[doc="Iterator over intervals `x..y`. Takes ownership of `IntervalSet`."]
+    #[derive(Debug)]
+    struct IntoIterSet -> Range<T>,
+    node -> node.interval.to_range()
+}
+
+/// Macro that generates unsorted iterator over IntervalMap.
+macro_rules! unsorted_iterator {
+    (
+        $(#[$outer:meta])*
+        struct $name:ident -> $elem:ty,
+        ($get_iter:ident -> $iter_type:ty),
+        $node:ident -> $out:expr, {$( $mut_:tt )?}
+    ) => {
+        $(#[$outer])*
+        pub struct $name<'a, T: PartialOrd + Copy, V, Ix: IndexType> {
+            inner: $iter_type,
+        }
+
+        impl<'a, T: PartialOrd + Copy, V, Ix: IndexType> $name<'a, T, V, Ix> {
+            pub(crate) fn new(tree: &'a $( $mut_ )? IntervalMap<T, V, Ix>) -> Self {
+                Self {
+                    inner: tree.nodes.$get_iter(),
+                }
+            }
+        }
+
+        impl<'a, T: PartialOrd + Copy, V, Ix: IndexType> Iterator for $name<'a, T, V, Ix> {
+            type Item = $elem;
+
+            fn next(&mut self) -> Option<Self::Item> {
+                match self.inner.next() {
+                    Some($node) => Some($out),
+                    None => None,
+                }
+            }
+
+            #[inline]
+            fn size_hint(&self) -> (usize, Option<usize>) {
+                self.inner.size_hint()
+            }
+        }
+
+        impl<'a, T: PartialOrd + Copy, V, Ix: IndexType> DoubleEndedIterator for $name<'a, T, V, Ix> {
+            fn next_back(&mut self) -> Option<Self::Item> {
+                match self.inner.next_back() {
+                    Some($node) => Some($out),
+                    None => None,
+                }
+            }
+        }
+
+        impl<'a, T: PartialOrd + Copy, V, Ix: IndexType> FusedIterator for $name<'a, T, V, Ix> { }
+
+        impl<'a, T: PartialOrd + Copy, V, Ix: IndexType> ExactSizeIterator for $name<'a, T, V, Ix> {
+            #[inline]
+            fn len(&self) -> usize {
+                self.inner.len()
+            }
+        }
+    };
+}
+
+unsorted_iterator! {
+    #[doc="Unsorted iterator over pairs `(x..y, &value)`."]
+    #[derive(Clone, Debug)]
+    struct UnsIter -> (Range<T>, &'a V),
+    (iter -> alloc::slice::Iter<'a, Node<T, V, Ix>>),
+    node -> (node.interval.to_range(), &node.value), { /* no mut */ }
+}
+
+unsorted_iterator! {
+    #[doc="Unsorted iterator over intervals `x..y`."]
+    #[derive(Clone, Debug)]
+    struct UnsIntervals -> Range<T>,
+    (iter -> alloc::slice::Iter<'a, Node<T, V, Ix>>),
+    node -> node.interval.to_range(), { /* no mut */ }
+}
+
+unsorted_iterator! {
+    #[doc="Unsorted iterator over values `&V`."]
+    #[derive(Clone, Debug)]
+    struct UnsValues -> &'a V,
+    (iter -> alloc::slice::Iter<'a, Node<T, V, Ix>>),
+    node -> &node.value, { /* no mut */ }
+}
+
+unsorted_iterator! {
+    #[doc="Unsorted iterator over pairs `(x..y, &mut V)`."]
+    #[derive(Debug)]
+    struct UnsIterMut -> (Range<T>, &'a mut V),
+    (iter_mut -> alloc::slice::IterMut<'a, Node<T, V, Ix>>),
+    node -> (node.interval.to_range(), &mut node.value), { mut }
+}
+
+unsorted_iterator! {
+    #[doc="Unsorted iterator over mutable values `&mut V`."]
+    #[derive(Debug)]
+    struct UnsValuesMut -> &'a mut V,
+    (iter_mut -> alloc::slice::IterMut<'a, Node<T, V, Ix>>),
+    node -> &mut node.value, { mut }
+}
+
+/// Macro that generates unsorted IntoIterator over IntervalMap.
+macro_rules! unsorted_into_iterator {
+    (
+        $(#[$outer:meta])*
+        struct $name:ident -> $elem:ty,
+        $node:ident -> $out:expr
+    ) => {
+        $(#[$outer])*
+        pub struct $name<T: PartialOrd + Copy, V, Ix: IndexType> {
+            inner: alloc::vec::IntoIter<Node<T, V, Ix>>,
+        }
+
+        impl<T: PartialOrd + Copy, V, Ix: IndexType> $name<T, V, Ix> {
+            pub(crate) fn new(tree: IntervalMap<T, V, Ix>) -> Self {
+                Self {
+                    inner: tree.nodes.into_iter(),
+                }
+            }
+        }
+
+        impl<T: PartialOrd + Copy, V, Ix: IndexType> Iterator for $name<T, V, Ix> {
+            type Item = $elem;
+
+            fn next(&mut self) -> Option<Self::Item> {
+                match self.inner.next() {
+                    Some($node) => Some($out),
+                    None => None,
+                }
+            }
+
+            #[inline]
+            fn size_hint(&self) -> (usize, Option<usize>) {
+                self.inner.size_hint()
+            }
+        }
+
+        impl<T: PartialOrd + Copy, V, Ix: IndexType> FusedIterator for $name<T, V, Ix> { }
+
+        impl<T: PartialOrd + Copy, V, Ix: IndexType> ExactSizeIterator for $name<T, V, Ix> {
+            #[inline]
+            fn len(&self) -> usize {
+                self.inner.len()
+            }
+        }
+    };
+}
+
+unsorted_into_iterator! {
+    #[doc="Unsorted IntoIterator over pairs `(x..y, V)`. Takes ownership of `IntervalMap`."]
+    #[derive(Debug)]
+    struct UnsIntoIter -> (Range<T>, V),
+    node -> (node.interval.to_range(), node.value)
+}
+
+unsorted_into_iterator! {
+    #[doc="Unsorted IntoIterator over intervals `x..y`. Takes ownership of `IntervalSet`."]
+    #[derive(Debug)]
+    struct UnsIntoIterSet -> Range<T>,
+    node -> node.interval.to_range()
+}

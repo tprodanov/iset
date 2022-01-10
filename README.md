@@ -41,11 +41,6 @@ println!("{:?}", map);
 
 You can find more detailed usage [here](https://docs.rs/iset).
 
-## Future features:
-- Remove intervals from `IntervalMap` and `IntervalSet`.
-- Get all (interval, value) pairs by exact match with the query.
-- Join two maps/sets, split map/set into two.
-
 ## Changelog
 You can find changelog [here](https://gitlab.com/tprodanov/iset/-/releases).
 

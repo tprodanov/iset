@@ -1,3 +1,5 @@
+//! `IntervalSet` implementation.
+
 use core::ops::{Range, RangeInclusive, RangeBounds};
 use core::fmt::{self, Debug, Formatter};
 #[cfg(feature = "dot")]
@@ -12,7 +14,6 @@ use super::ix::{IndexType, DefaultIx};
 use super::iter::*;
 
 /// Set with interval keys (ranges `x..y`). Newtype over `IntervalMap<T, ()>`.
-///
 /// See [IntervalMap](struct.IntervalMap.html) for more information.
 ///
 /// ```rust
@@ -101,7 +102,7 @@ impl<T: PartialOrd + Copy, Ix: IndexType> IntervalSet<T, Ix> {
         }
     }
 
-    /// Creates an interval set from a sorted iterator over intervals. Takes $O(n)$.
+    /// Creates an interval set from a sorted iterator over intervals. Takes *O(n)*.
     pub fn from_sorted<I: Iterator<Item = Range<T>>>(iter: I) -> Self {
         Self {
             inner: IntervalMap::from_sorted(iter.map(|range| (range, ()))),
@@ -167,9 +168,14 @@ impl<T: PartialOrd + Copy, Ix: IndexType> IntervalSet<T, Ix> {
         self.inner.largest().map(|(interval, _)| interval)
     }
 
-    /// Check if the interval set contains `interval` (exact match).
+    /// Check if the interval set contains `interval` (exact match). Takes *O(log n)*.
     pub fn contains(&self, interval: Range<T>) -> bool {
         self.inner.contains(interval)
+    }
+
+    /// Removes the interval from the set. Returns true if the interval was present in the set. Takes *O(log n)*.
+    pub fn remove(&mut self, interval: Range<T>) -> bool {
+        self.inner.remove(interval).is_some()
     }
 }
 

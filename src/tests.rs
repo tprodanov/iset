@@ -13,7 +13,7 @@ use bit_vec::BitVec;
 use super::*;
 
 /// Returns distance to leaves (only black nodes).
-fn check_tree_recursive<T, V, Ix>(tree: &IntervalMap<T, V, Ix>, index: Ix, upper_interval: &mut Interval<T>,
+fn validate_tree_recursive<T, V, Ix>(tree: &IntervalMap<T, V, Ix>, index: Ix, upper_interval: &mut Interval<T>,
     visited: &mut BitVec) -> u32
 where T: PartialOrd + Copy,
       Ix: IndexType,
@@ -30,7 +30,7 @@ where T: PartialOrd + Copy,
         if node.is_red() {
             assert!(tree.nodes[left.get()].is_black(), "Red node {} has a red child {}", index, left);
         }
-        Some(check_tree_recursive(tree, left, &mut down_interval, visited))
+        Some(validate_tree_recursive(tree, left, &mut down_interval, visited))
     } else {
         None
     };
@@ -38,7 +38,7 @@ where T: PartialOrd + Copy,
         if node.is_red() {
             assert!(tree.nodes[right.get()].is_black(), "Red node {} has a red child {}", index, right);
         }
-        Some(check_tree_recursive(tree, right, &mut down_interval, visited))
+        Some(validate_tree_recursive(tree, right, &mut down_interval, visited))
     } else {
         None
     };
@@ -57,7 +57,10 @@ where T: PartialOrd + Copy,
     }
 }
 
-fn check<T: PartialOrd + Copy, V, Ix: IndexType>(tree: &IntervalMap<T, V, Ix>) {
+fn validate<T: PartialOrd + Copy, V, Ix: IndexType>(tree: &IntervalMap<T, V, Ix>, size: usize) {
+    assert_eq!(size, tree.len(), "Tree sizes do not match");
+    assert_eq!(size > 0, tree.root.defined(), "Tree root != size");
+
     if !tree.root.defined() {
         assert!(tree.nodes.is_empty(), "Non empty nodes with an empty root");
         return;
@@ -73,8 +76,12 @@ fn check<T: PartialOrd + Copy, V, Ix: IndexType>(tree: &IntervalMap<T, V, Ix>) {
     let node = &tree.nodes[tree.root.get()];
     let mut interval = node.interval.clone();
     let mut visited = BitVec::from_elem(tree.nodes.len(), false);
-    check_tree_recursive(tree, tree.root, &mut interval, &mut visited);
+    validate_tree_recursive(tree, tree.root, &mut interval, &mut visited);
     assert!(interval == node.subtree_interval, "Interval != subtree interval for node {}", tree.root);
+
+    for i in 0..tree.len() {
+        assert!(visited[i], "The tree is disjoint: node {} has no connection to the root", i);
+    }
 }
 
 fn intersects<T: PartialOrd, R: RangeBounds<T>>(range: &Range<T>, query: &R) -> bool {
@@ -105,6 +112,10 @@ impl<T: PartialOrd + Copy, V> NaiveIntervalMap<T, V> {
         }
     }
 
+    fn len(&self) -> usize {
+        self.nodes.len()
+    }
+
     fn insert(&mut self, range: Range<T>, value: V) {
         self.nodes.push((range, value));
     }
@@ -116,6 +127,10 @@ impl<T: PartialOrd + Copy, V> NaiveIntervalMap<T, V> {
 
     fn all_matching<'a>(&'a self, query: Range<T>) -> impl Iterator<Item = &V> + 'a {
         self.nodes.iter().filter(move |(range, _value)| range_eq(&range, &query)).map(|(_range, value)| value)
+    }
+
+    fn remove_random(&mut self, rng: &mut impl Rng) -> (Range<T>, V) {
+        self.nodes.swap_remove(rng.gen_range(0..self.nodes.len()))
     }
 }
 
@@ -162,9 +177,15 @@ fn generate_int(a: i32, b: i32) -> impl (FnMut() -> i32) {
     move || rng.gen_range(a..b)
 }
 
-fn generate_float(a: f64, b: f64) -> impl (FnMut() -> f64) {
+fn generate_float(range: f64) -> impl (FnMut() -> f64) {
     let mut rng = thread_rng();
-    move || rng.gen_range(a..b)
+    move || rng.gen::<f64>() * range
+}
+
+fn generate_float_rounding() -> impl (FnMut() -> f64) {
+    const MULT: f64 = 1e8;
+    let mut rng = thread_rng();
+    move || (rng.gen::<f64>() * MULT).round() / MULT
 }
 
 fn generate_range<T: PartialOrd + Copy + Debug, F: FnMut() -> T>(mut generator: F)
@@ -310,7 +331,7 @@ fn test_int_inserts() {
     std::fs::create_dir_all(folders).unwrap();
     let f = File::create(output_path).unwrap();
     tree.write_dot(f).unwrap();
-    check(&tree);
+    validate(&tree, naive.len());
     compare_extremums(&naive, &tree, &history);
     compare_exact_matching(&naive, &tree, &history, generate_range(&mut generator));
 
@@ -327,7 +348,7 @@ fn test_float_inserts() {
     const COUNT: u32 = 1000;
     let mut naive = NaiveIntervalMap::new();
     let mut tree = IntervalMap::new();
-    let mut generator = generate_float(0.0, 1.0);
+    let mut generator = generate_float(1000.0);
     let history = modify_maps(&mut naive, &mut tree, COUNT, generate_range(&mut generator));
 
     let output_path = Path::new("tests/data/float.dot");
@@ -335,7 +356,7 @@ fn test_float_inserts() {
     std::fs::create_dir_all(folders).unwrap();
     let f = File::create(output_path).unwrap();
     tree.write_dot(f).unwrap();
-    check(&tree);
+    validate(&tree, naive.len());
     compare_extremums(&naive, &tree, &history);
 
     search_rand(&mut naive, &mut tree, COUNT, generate_range(&mut generator), &history);
@@ -351,13 +372,13 @@ fn test_from_sorted() {
     const COUNT: u32 = 1000;
     let mut vec = Vec::new();
     let mut map: IntervalMap<_, _, u32> = IntervalMap::from_sorted(vec.clone().into_iter());
-    check(&map);
+    validate(&map, 0);
 
     for i in 0..COUNT {
         vec.push((i..i+1, i));
         map = IntervalMap::from_sorted(vec.clone().into_iter());
         assert_eq!(map.len(), vec.len());
-        check(&map);
+        validate(&map, vec.len());
     }
 
     for (range, value) in vec {
@@ -371,7 +392,7 @@ fn test_serde() {
     const COUNT: u32 = 1000;
     let mut naive = NaiveIntervalMap::new();
     let mut tree: IntervalMap<i32, u32> = IntervalMap::new();
-    let history = modify_maps(&mut naive, &mut tree, COUNT, generate_int(0..10000));
+    let history = modify_maps(&mut naive, &mut tree, COUNT, generate_int(0, 10000));
 
     let json_path = Path::new("tests/data/serde.json");
     let folders = json_path.parent().unwrap();
@@ -382,4 +403,41 @@ fn test_serde() {
     let input = File::open(json_path).unwrap();
     let tree2: IntervalMap<i32, u32> = serde_json::from_reader(input).unwrap();
     compare_iterators(tree.iter(..), tree2.iter(..), &history);
+}
+
+fn removal_with_insert_chance(insert_chance: f64, count: u32) {
+    let mut range_generator = generate_range(generate_float_rounding());
+    let mut naive = NaiveIntervalMap::<f64, u32>::new();
+    let mut tree = IntervalMap::<f64, u32>::new();
+
+    let mut rng = thread_rng();
+    for i in 0..count {
+        let r = rng.gen::<f64>();
+        if naive.len() == 0 || r <= insert_chance {
+            let range = range_generator();
+            println!("map.insert({:?}, {});", range, i);
+            naive.insert(range.clone(), i);
+            tree.insert(range, i);
+        } else {
+            let (range, value) = naive.remove_random(&mut rng);
+            println!("map.remove({:?}); // -> {}", range, value);
+            let rm_val = tree.remove(range.clone());
+            assert_eq!(rm_val, Some(value));
+            validate(&tree, naive.len());
+        }
+    }
+    println!("-------------")
+}
+
+#[test]
+fn test_removal() {
+    for _ in 0..10 {
+        removal_with_insert_chance(0.4, 10000);
+    }
+    for _ in 0..10 {
+        removal_with_insert_chance(0.6, 10000);
+    }
+    for _ in 0..10 {
+        removal_with_insert_chance(0.8, 10000);
+    }
 }

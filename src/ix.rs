@@ -1,9 +1,11 @@
+//! Wrapper around integer types, used as indices within `IntervalMap` and `IntervalSet`.
+
 use core::fmt::Display;
 
 /// Trait for index types: used in the inner representation of [IntervalMap](struct.IntervalMap.html) and
 /// [IntervalSet](struct.IntervalSet.html).
 ///
-/// Implemented for `u8`, `u16`, `u32`, `u64` and `u128`. [DefaultIx](type.DefaultIx.html) is an alias for default
+/// Implemented for `u8`, `u16`, `u32` and `u64`. [DefaultIx](type.DefaultIx.html) is an alias for default
 /// index type (`u32`). `IntervalMap` or `IntervalSet` can store up to `Ix::MAX - 1` elements.
 ///
 /// Using smaller index type saves memory usage and may reduce running time.

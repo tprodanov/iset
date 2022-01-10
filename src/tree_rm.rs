@@ -49,6 +49,10 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
                 parent_node.right = ix;
             }
         }
+
+        if self.root == old_ix {
+            self.root = ix;
+        }
         removed_val
     }
 
@@ -143,11 +147,17 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
                 self.nodes[sibling_ix.get()].set_red();
                 return;
             }
-            // Case: Node has black parent, sibling and distant nephew, but close nephew is red.
-            else if parent_black && sibling_black && distant_nephew_black && !close_nephew_black {
+            // Case: Node has any parent, sibling and distant nephew, but close nephew is red.
+            else if sibling_black && distant_nephew_black && !close_nephew_black {
                 self.nodes[close_nephew_ix.get()].set_black();
                 self.nodes[sibling_ix.get()].set_red();
-                self.set_child(sibling_ix, Ix::MAX, node_is_left);
+
+                let close_newphew_child2 = if node_is_left {
+                    self.nodes[close_nephew_ix.get()].right
+                } else {
+                    self.nodes[close_nephew_ix.get()].left
+                };
+                self.set_child(sibling_ix, close_newphew_child2, node_is_left);
                 self.set_child(close_nephew_ix, sibling_ix, !node_is_left);
                 self.set_child(parent_ix, close_nephew_ix, !node_is_left);
                 self.update_subtree_interval(sibling_ix);
@@ -229,7 +239,7 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
         }
     }
 
-    /// Removes an entry, associated with `interval` (exact match is required), takes $O(log n)$.
+    /// Removes an entry, associated with `interval` (exact match is required), takes *O(log n)*.
     /// Returns value if the interval was present in the map, and None otherwise.
     /// If several intervals match the query interval, removes any one of them (order is unspecified).
     pub fn remove(&mut self, interval: Range<T>) -> Option<V> {

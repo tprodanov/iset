@@ -55,7 +55,7 @@ use {
 
 use ix::*;
 use iter::*;
-pub use set::*;
+pub use set::IntervalSet;
 
 #[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord)]
 struct Interval<T: PartialOrd + Copy> {
@@ -364,7 +364,7 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
         center_ix
     }
 
-    /// Creates an interval map from a sorted iterator over pairs `(range, value)`. Takes $O(n)$.
+    /// Creates an interval map from a sorted iterator over pairs `(range, value)`. Takes *O(n)*.
     pub fn from_sorted<I: Iterator<Item = (Range<T>, V)>>(iter: I) -> Self {
         let mut map = Self {
             nodes: iter.map(|(range, value)| Node::new(range, value)).collect(),

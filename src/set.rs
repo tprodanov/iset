@@ -102,14 +102,14 @@ impl<T: PartialOrd + Copy, Ix: IndexType> IntervalSet<T, Ix> {
         }
     }
 
-    /// Creates an interval set from a sorted iterator over intervals. Takes *O(n)*.
+    /// Creates an interval set from a sorted iterator over intervals. Takes *O(N)*.
     pub fn from_sorted<I: Iterator<Item = Range<T>>>(iter: I) -> Self {
         Self {
             inner: IntervalMap::from_sorted(iter.map(|range| (range, ()))),
         }
     }
 
-    /// Returns number of elements in the set.
+    /// Returns the number of elements in the set.
     #[inline]
     pub fn len(&self) -> usize {
         self.inner.len()
@@ -168,12 +168,12 @@ impl<T: PartialOrd + Copy, Ix: IndexType> IntervalSet<T, Ix> {
         self.inner.largest().map(|(interval, _)| interval)
     }
 
-    /// Check if the interval set contains `interval` (exact match). Takes *O(log n)*.
+    /// Check if the interval set contains `interval` (exact match). Takes *O(log N)*.
     pub fn contains(&self, interval: Range<T>) -> bool {
         self.inner.contains(interval)
     }
 
-    /// Removes the interval from the set. Returns true if the interval was present in the set. Takes *O(log n)*.
+    /// Removes the interval from the set. Returns true if the interval was present in the set. Takes *O(log N)*.
     pub fn remove(&mut self, interval: Range<T>) -> bool {
         self.inner.remove(interval).is_some()
     }

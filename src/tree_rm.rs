@@ -192,7 +192,7 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
         }
     }
 
-    fn remove_at(&mut self, ix: Ix) -> Option<V> {
+    pub(super) fn remove_at(&mut self, ix: Ix) -> Option<V> {
         if !ix.defined() {
             return None;
         }
@@ -237,12 +237,5 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
             }
             Some(self.swap_remove(rm_ix))
         }
-    }
-
-    /// Removes an entry, associated with `interval` (exact match is required), takes *O(log n)*.
-    /// Returns value if the interval was present in the map, and None otherwise.
-    /// If several intervals match the query interval, removes any one of them (order is unspecified).
-    pub fn remove(&mut self, interval: Range<T>) -> Option<V> {
-        self.remove_at(self.find_index(&interval))
     }
 }

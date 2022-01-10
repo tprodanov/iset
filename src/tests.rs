@@ -392,7 +392,7 @@ fn test_serde() {
     const COUNT: u32 = 1000;
     let mut naive = NaiveIntervalMap::new();
     let mut tree: IntervalMap<i32, u32> = IntervalMap::new();
-    let history = modify_maps(&mut naive, &mut tree, COUNT, generate_int(0, 10000));
+    let history = modify_maps(&mut naive, &mut tree, COUNT, generate_range(generate_int(0, 10000)));
 
     let json_path = Path::new("tests/data/serde.json");
     let folders = json_path.parent().unwrap();

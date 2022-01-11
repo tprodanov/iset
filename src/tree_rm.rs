@@ -23,8 +23,13 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
         let i = ix.get();
         let removed_val = self.nodes.swap_remove(i).value;
         if i >= self.nodes.len() {
+            self.colors.pop();
             // Removed node was the last, no swap was made.
             return removed_val;
+        } else {
+            // There is no swap_remove in `bit-vec`.
+            self.colors.set(i, self.colors[self.nodes.len()]);
+            self.colors.pop();
         }
 
         let ix = Ix::new(i).unwrap();
@@ -54,11 +59,6 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
             self.root = ix;
         }
         removed_val
-    }
-
-    #[inline]
-    fn node_is_black(&self, ix: Ix) -> bool {
-        !ix.defined() || self.nodes[ix.get()].is_black()
     }
 
     fn remove_child(&mut self, parent: Ix, child: Ix) {
@@ -101,19 +101,18 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
     /// It is known that the node is black and has black children.
     fn restructure_rm_complex_cases(&mut self, mut ix: Ix) {
         loop {
+            debug_assert!(self.is_black(ix));
             let node = &self.nodes[ix.get()];
-            debug_assert!(node.is_black());
             let parent_ix = node.parent;
 
             // Case (terminal): Node is the root of the tree.
             if !parent_ix.defined() {
-                debug_assert!(node.is_black());
                 debug_assert!(self.root == ix);
                 return;
             }
 
             let parent = &self.nodes[parent_ix.get()];
-            let parent_black = parent.is_black();
+            let parent_black = self.is_black(parent_ix);
             let node_is_left = parent.left == ix;
             let sibling_ix = if node_is_left { parent.right } else { parent.left };
             let (close_nephew_ix, distant_nephew_ix) = if sibling_ix.defined() {
@@ -123,19 +122,19 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
                 (Ix::MAX, Ix::MAX)
             };
 
-            let sibling_black = self.node_is_black(sibling_ix);
-            let close_nephew_black = self.node_is_black(close_nephew_ix);
-            let distant_nephew_black = self.node_is_black(distant_nephew_ix);
+            let sibling_black = self.is_black_or_nil(sibling_ix);
+            let close_nephew_black = self.is_black_or_nil(close_nephew_ix);
+            let distant_nephew_black = self.is_black_or_nil(distant_nephew_ix);
 
             if parent_black && close_nephew_black && distant_nephew_black {
                 if sibling_black {
                     // Case: Node has black parent and black sibling, both nephews are black.
-                    self.nodes[sibling_ix.get()].set_red();
+                    self.set_red(sibling_ix);
                     ix = parent_ix;
                 } else {
                     // Case: Node has black parent and red sibling, both nephews are black.
-                    self.nodes[parent_ix.get()].set_red();
-                    self.nodes[sibling_ix.get()].set_black();
+                    self.set_red(parent_ix);
+                    self.set_black(sibling_ix);
                     self.replace_children(parent_ix, sibling_ix);
                     self.set_child(sibling_ix, parent_ix, node_is_left);
                     self.set_child(parent_ix, close_nephew_ix, !node_is_left);
@@ -143,14 +142,14 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
             }
             // Case (terminal): Node has red parent, sibling and both nephews are black.
             else if !parent_black && sibling_black && close_nephew_black && distant_nephew_black {
-                self.nodes[parent_ix.get()].set_black();
-                self.nodes[sibling_ix.get()].set_red();
+                self.set_black(parent_ix);
+                self.set_red(sibling_ix);
                 return;
             }
             // Case: Node has any parent, sibling and distant nephew, but close nephew is red.
             else if sibling_black && distant_nephew_black && !close_nephew_black {
-                self.nodes[close_nephew_ix.get()].set_black();
-                self.nodes[sibling_ix.get()].set_red();
+                self.set_black(close_nephew_ix);
+                self.set_red(sibling_ix);
 
                 let close_newphew_child2 = if node_is_left {
                     self.nodes[close_nephew_ix.get()].right
@@ -166,10 +165,10 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
             // Case (terminal): any parent, black sibling, any close sibling and any red distant nephew.
             else {
                 debug_assert!(sibling_black && !distant_nephew_black);
-                // parent's color -> subling's color.
-                self.nodes[sibling_ix.get()].red_color = self.nodes[parent_ix.get()].red_color;
-                self.nodes[parent_ix.get()].set_black();
-                self.nodes[distant_nephew_ix.get()].set_black();
+                // parent's color -> sibling's color.
+                self.colors.set(sibling_ix.get(), self.colors[parent_ix.get()]);
+                self.set_black(parent_ix);
+                self.set_black(distant_nephew_ix);
                 self.replace_children(parent_ix, sibling_ix);
                 self.set_child(parent_ix, close_nephew_ix, !node_is_left);
                 self.set_child(sibling_ix, parent_ix, node_is_left);
@@ -180,12 +179,12 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
 
     /// Restructure the tree before removing `ix`.
     fn restructure_rm(&mut self, ix: Ix, child_ix: Ix) {
-        if self.nodes[ix.get()].is_red() {
+        if self.is_red(ix) {
             // Both of the children must be NIL.
             debug_assert!(!child_ix.defined());
             // Do nothing.
-        } else if !self.node_is_black(child_ix) {
-            self.nodes[child_ix.get()].set_red();
+        } else if !self.is_black_or_nil(child_ix) {
+            self.set_red(child_ix);
             // Child will be removed later.
         } else {
             self.restructure_rm_complex_cases(ix);

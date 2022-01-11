@@ -27,16 +27,16 @@ where T: PartialOrd + Copy,
     let right = node.right;
 
     let left_depth = if left.defined() {
-        if node.is_red() {
-            assert!(tree.nodes[left.get()].is_black(), "Red node {} has a red child {}", index, left);
+        if tree.is_red(index) {
+            assert!(tree.is_black(left), "Red node {} has a red child {}", index, left);
         }
         Some(validate_tree_recursive(tree, left, &mut down_interval, visited))
     } else {
         None
     };
     let right_depth = if right.defined() {
-        if node.is_red() {
-            assert!(tree.nodes[right.get()].is_black(), "Red node {} has a red child {}", index, right);
+        if tree.is_red(index) {
+            assert!(tree.is_black(right), "Red node {} has a red child {}", index, right);
         }
         Some(validate_tree_recursive(tree, right, &mut down_interval, visited))
     } else {
@@ -50,7 +50,7 @@ where T: PartialOrd + Copy,
         _ => {},
     }
     let depth = left_depth.or(right_depth).unwrap_or(0);
-    if node.is_black() {
+    if tree.is_black(index) {
         depth + 1
     } else {
         depth
@@ -60,6 +60,7 @@ where T: PartialOrd + Copy,
 fn validate<T: PartialOrd + Copy, V, Ix: IndexType>(tree: &IntervalMap<T, V, Ix>, size: usize) {
     assert_eq!(size, tree.len(), "Tree sizes do not match");
     assert_eq!(size > 0, tree.root.defined(), "Tree root != size");
+    assert_eq!(tree.len(), tree.colors.len(), "Number of nodes != number of colors");
 
     if !tree.root.defined() {
         assert!(tree.nodes.is_empty(), "Non empty nodes with an empty root");

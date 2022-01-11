@@ -23,7 +23,6 @@
 
 // TODO:
 // - union, split
-// - unsorted_iter
 // - remove by value
 // - try to use bitvec to store colors
 
@@ -55,6 +54,7 @@ use {
     serde::ser::{SerializeTuple, SerializeSeq},
     serde::de::{Visitor, SeqAccess},
 };
+use bit_vec::BitVec;
 
 use ix::IndexType;
 pub use ix::DefaultIx;
@@ -134,7 +134,6 @@ struct Node<T: PartialOrd + Copy, V, Ix: IndexType> {
     left: Ix,
     right: Ix,
     parent: Ix,
-    red_color: bool,
 }
 
 impl<T: PartialOrd + Copy, V, Ix: IndexType> Node<T, V, Ix> {
@@ -146,28 +145,7 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> Node<T, V, Ix> {
             left: Ix::MAX,
             right: Ix::MAX,
             parent: Ix::MAX,
-            red_color: true,
         }
-    }
-
-    #[inline(always)]
-    fn is_red(&self) -> bool {
-        self.red_color
-    }
-
-    #[inline(always)]
-    fn is_black(&self) -> bool {
-        !self.red_color
-    }
-
-    #[inline(always)]
-    fn set_red(&mut self) {
-        self.red_color = true;
-    }
-
-    #[inline(always)]
-    fn set_black(&mut self) {
-        self.red_color = false;
     }
 
     /// Swaps values and intervals between two mutable nodes.
@@ -180,10 +158,9 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> Node<T, V, Ix> {
 
 #[cfg(feature = "dot")]
 impl<T: PartialOrd + Copy + Display, V: Display, Ix: IndexType> Node<T, V, Ix> {
-    fn write_dot<W: Write>(&self, index: Ix, mut writer: W) -> io::Result<()> {
+    fn write_dot<W: Write>(&self, index: usize, is_red: bool, mut writer: W) -> io::Result<()> {
         writeln!(writer, "    {} [label=\"i={}\\n{}: {}\\nsubtree: {}\", fillcolor={}, style=filled]",
-            index, index, self.interval, self.value, self.subtree_interval,
-            if self.is_red() { "salmon" } else { "grey65" })?;
+            index, index, self.interval, self.value, self.subtree_interval, if is_red { "salmon" } else { "grey65" })?;
         if self.left.defined() {
             writeln!(writer, "    {} -> {} [label=\"L\"]", index, self.left)?;
         }
@@ -196,9 +173,9 @@ impl<T: PartialOrd + Copy + Display, V: Display, Ix: IndexType> Node<T, V, Ix> {
 
 #[cfg(feature = "dot")]
 impl<T: PartialOrd + Copy + Display, V, Ix: IndexType> Node<T, V, Ix> {
-    fn write_dot_without_values<W: Write>(&self, index: Ix, mut writer: W) -> io::Result<()> {
+    fn write_dot_without_values<W: Write>(&self, index: usize, is_red: bool, mut writer: W) -> io::Result<()> {
         writeln!(writer, "    {} [label=\"i={}: {}\\nsubtree: {}\", fillcolor={}, style=filled]",
-            index, index, self.interval, self.subtree_interval, if self.is_red() { "salmon" } else { "grey65" })?;
+            index, index, self.interval, self.subtree_interval, if is_red { "salmon" } else { "grey65" })?;
         if self.left.defined() {
             writeln!(writer, "    {} -> {} [label=\"L\"]", index, self.left)?;
         }
@@ -305,6 +282,8 @@ fn check_interval_incl<T: PartialOrd + Copy>(start: T, end: T) {
 #[derive(Clone)]
 pub struct IntervalMap<T: PartialOrd + Copy, V, Ix: IndexType = DefaultIx> {
     nodes: Vec<Node<T, V, Ix>>,
+    // true if the node is red, false if black.
+    colors: BitVec,
     root: Ix,
 }
 
@@ -319,6 +298,7 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> Default for IntervalMap<T, V, Ix> {
     fn default() -> Self {
         Self {
             nodes: Vec::new(),
+            colors: BitVec::new(),
             root: Ix::MAX,
         }
     }
@@ -345,6 +325,7 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
             nodes: Vec::with_capacity(capacity),
+            colors: BitVec::with_capacity(capacity),
             root: Ix::MAX,
         }
     }
@@ -354,14 +335,14 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
     fn init_from_sorted(&mut self, start: usize, end: usize, rev_depth: u16) -> Ix {
         debug_assert!(start < end);
         if start + 1 == end {
-            if rev_depth > 1 {
-                self.nodes[start].set_black();
+            if rev_depth == 1 {
+                // Set red.
+                self.colors.set(start, true);
             }
             return Ix::new(start).unwrap();
         }
 
         let center = (start + end) / 2;
-        self.nodes[center].set_black();
         let center_ix = Ix::new(center).unwrap();
         if start < center {
             let left_ix = self.init_from_sorted(start, center, rev_depth - 1);
@@ -381,11 +362,13 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
     ///
     /// Panics if the intervals are not sorted.
     pub fn from_sorted<I: Iterator<Item = (Range<T>, V)>>(iter: I) -> Self {
+        let nodes: Vec<_> = iter.map(|(range, value)| Node::new(range, value)).collect();
+        let n = nodes.len();
         let mut map = Self {
-            nodes: iter.map(|(range, value)| Node::new(range, value)).collect(),
+            nodes,
+            colors: BitVec::from_elem(n, false), // Start with all black nodes.
             root: Ix::MAX,
         };
-        let n = map.nodes.len();
         for i in 1..n {
             assert!(map.nodes[i - 1].interval <= map.nodes[i].interval,
                 "Cannot construct interval map from sorted nodes: intervals at positions {} and {} are unordered!",
@@ -413,12 +396,39 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
     /// Clears the map, removing all values. This method has no effect on the allocated capacity.
     pub fn clear(&mut self) {
         self.nodes.clear();
+        self.colors.clear();
         self.root = Ix::MAX;
     }
 
     /// Shrinks inner contents.
     pub fn shrink_to_fit(&mut self) {
         self.nodes.shrink_to_fit();
+        self.colors.shrink_to_fit();
+    }
+
+    #[inline]
+    fn is_red(&self, ix: Ix) -> bool {
+        self.colors[ix.get()]
+    }
+
+    #[inline]
+    fn is_black(&self, ix: Ix) -> bool {
+        !self.colors[ix.get()]
+    }
+
+    #[inline]
+    fn is_black_or_nil(&self, ix: Ix) -> bool {
+        !ix.defined() || !self.colors[ix.get()]
+    }
+
+    #[inline]
+    fn set_red(&mut self, ix: Ix) {
+        self.colors.set(ix.get(), true);
+    }
+
+    #[inline]
+    fn set_black(&mut self, ix: Ix) {
+        self.colors.set(ix.get(), false);
     }
 
     fn update_subtree_interval(&mut self, index: Ix) {
@@ -506,15 +516,15 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
 
     fn insert_repair(&mut self, mut index: Ix) {
         loop {
-            debug_assert!(self.nodes[index.get()].is_red());
+            debug_assert!(self.is_red(index));
             if index == self.root {
-                self.nodes[index.get()].set_black();
+                self.set_black(index);
                 return;
             }
 
             // parent should be defined
             let parent = self.nodes[index.get()].parent;
-            if self.nodes[parent.get()].is_black() {
+            if self.is_black(parent) {
                 return;
             }
 
@@ -523,10 +533,10 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
             let grandparent = self.nodes[parent.get()].parent;
             let uncle = self.sibling(parent);
 
-            if uncle.defined() && self.nodes[uncle.get()].is_red() {
-                self.nodes[parent.get()].set_black();
-                self.nodes[uncle.get()].set_black();
-                self.nodes[grandparent.get()].set_red();
+            if uncle.defined() && self.is_red(uncle) {
+                self.set_black(parent);
+                self.set_black(uncle);
+                self.set_red(grandparent);
                 index = grandparent;
                 continue;
             }
@@ -546,8 +556,8 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
             } else {
                 self.rotate_left(grandparent);
             }
-            self.nodes[parent.get()].set_black();
-            self.nodes[grandparent.get()].set_red();
+            self.set_black(parent);
+            self.set_red(grandparent);
             return;
         }
     }
@@ -561,8 +571,9 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
         let mut new_node = Node::new(interval, value);
         if !self.root.defined() {
             self.root = Ix::new(0).unwrap();
-            new_node.set_black();
             self.nodes.push(new_node);
+            // New node should be black.
+            self.colors.push(false);
             return;
         }
 
@@ -583,6 +594,7 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
             }
         }
         self.nodes.push(new_node);
+        self.colors.push(true);
         self.insert_repair(new_ind);
     }
 
@@ -826,7 +838,7 @@ impl<T: PartialOrd + Copy + Display, V: Display, Ix: IndexType> IntervalMap<T, V
     pub fn write_dot<W: Write>(&self, mut writer: W) -> io::Result<()> {
         writeln!(writer, "digraph {{")?;
         for i in 0..self.nodes.len() {
-            self.nodes[i].write_dot(Ix::new(i).unwrap(), &mut writer)?;
+            self.nodes[i].write_dot(i, self.colors[i], &mut writer)?;
         }
         writeln!(writer, "}}")
     }
@@ -838,7 +850,7 @@ impl<T: PartialOrd + Copy + Display, V, Ix: IndexType> IntervalMap<T, V, Ix> {
     pub fn write_dot_without_values<W: Write>(&self, mut writer: W) -> io::Result<()> {
         writeln!(writer, "digraph {{")?;
         for i in 0..self.nodes.len() {
-            self.nodes[i].write_dot_without_values(Ix::new(i).unwrap(), &mut writer)?;
+            self.nodes[i].write_dot_without_values(i, self.colors[i], &mut writer)?;
         }
         writeln!(writer, "}}")
     }

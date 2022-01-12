@@ -17,7 +17,9 @@ use super::iter::*;
 /// See [IntervalMap](../struct.IntervalMap.html) for more information.
 ///
 /// ```rust
-/// let mut set = interval_set!{ 0.4..1.5,  0.1..0.5 };
+/// #[macro_use] extern crate iset;
+///
+/// let mut set = interval_set!{ 0.4..1.5, 0.1..0.5, 5.0..7.0 };
 /// assert!(set.insert(-1.0..0.2));
 /// // false because the interval is already in the set.
 /// assert!(!set.insert(0.1..0.5));

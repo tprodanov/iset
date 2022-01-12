@@ -1,10 +1,10 @@
 [package]
 name = "iset"
-version = "0.0.5"
+version = "0.1.0"
 authors = ["Timofey Prodanov <timofey.prodanov@gmail.com>"]
 edition = "2018"
 description = "Map and set with interval keys (x..y)."
-repository = "https://gitlab.com/tprodanov/iset"
+repository = "https://github.com/tprodanov/iset"
 readme = "README.md"
 license = "MIT"
 keywords = ["interval", "intervals", "interval_tree", "interval_set", "map"]

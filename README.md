@@ -45,8 +45,7 @@ println!("{:?}", map);
 You can find more detailed usage [here](https://docs.rs/iset).
 
 ## Changelog
-You can find changelog [here](https://gitlab.com/tprodanov/iset/-/releases).
+You can find changelog [here](https://github.com/tprodanov/iset/releases).
 
 ## Issues
-Please submit issues [here](https://gitlab.com/tprodanov/iset/issues) or send them to
-`timofey.prodanov[at]gmail.com`.
+Please submit issues [here](https://github.com/tprodanov/iset/issues) or send them to `timofey.prodanov[at]gmail.com`.

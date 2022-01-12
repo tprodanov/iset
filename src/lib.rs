@@ -304,7 +304,7 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> Default for IntervalMap<T, V, Ix> {
     }
 }
 
-// #[cfg(not(std))]
+#[cfg(not(std))]
 fn calculate_max_depth(mut n: usize) -> u16 {
     // Same as `((n + 1) as f64).log2().ceil() as u16`, but without std.
     let mut depth = 0;
@@ -881,14 +881,11 @@ impl<T, V, Ix> Serialize for IntervalMap<T, V, Ix>
 {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         // For some reason, Vec<Node> does not support serialization. Because of that we create a newtype.
-        struct NodeVecSer<'a, T, V, Ix>
+        struct NodeVecSer<'a, T, V, Ix>(&'a Vec<Node<T, V, Ix>>)
             where
                 T: PartialOrd + Copy + Serialize,
                 V: Serialize,
-                Ix: IndexType + Serialize {
-            nodes: &'a Vec<Node<T, V, Ix>>,
-            colors: &'a BitVec,
-        }
+                Ix: IndexType + Serialize;
 
         impl<'a, T, V, Ix> Serialize for NodeVecSer<'a, T, V, Ix>
             where
@@ -897,19 +894,17 @@ impl<T, V, Ix> Serialize for IntervalMap<T, V, Ix>
                 Ix: IndexType + Serialize,
         {
             fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-                let mut seq = serializer.serialize_seq(Some(self.nodes.len()))?;
-                for i in 0..self.nodes.len() {
-                    seq.serialize_element(&(&self.nodes[i], self.colors.get(i)))?;
+                let mut seq = serializer.serialize_seq(Some(self.0.len()))?;
+                for node in self.0.iter() {
+                    seq.serialize_element(node)?;
                 }
                 seq.end()
             }
         }
 
         let mut tup = serializer.serialize_tuple(2)?;
-        tup.serialize_element(&NodeVecSer {
-            nodes: &self.nodes,
-            colors: &self.colors,
-        })?;
+        tup.serialize_element(&NodeVecSer(&self.nodes))?;
+        tup.serialize_element(&self.colors)?;
         tup.serialize_element(&self.root)?;
         tup.end()
     }
@@ -917,17 +912,7 @@ impl<T, V, Ix> Serialize for IntervalMap<T, V, Ix>
 
 // For some reason, Vec<Node> does not support deserialization. Because of that we create a newtype.
 #[cfg(feature = "serde")]
-struct NodeVecDe<T: PartialOrd + Copy, V, Ix: IndexType> {
-    nodes: Vec<Node<T, V, Ix>>,
-    colors: BitVec,
-}
-
-#[cfg(feature = "serde")]
-impl<T: PartialOrd + Copy, V, Ix: IndexType> NodeVecDe<T, V, Ix> {
-    fn take(self) -> (Vec<Node<T, V, Ix>>, BitVec) {
-        (self.nodes, self.colors)
-    }
-}
+struct NodeVecDe<T: PartialOrd + Copy, V, Ix: IndexType>(Vec<Node<T, V, Ix>>);
 
 #[cfg(feature = "serde")]
 impl<'de, T, V, Ix> Deserialize<'de> for NodeVecDe<T, V, Ix>
@@ -950,17 +935,15 @@ impl<'de, T, V, Ix> Deserialize<'de> for NodeVecDe<T, V, Ix>
             type Value = NodeVecDe<T, V, Ix>;
 
             fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                formatter.write_str("a sequence of (Node<T, V, Ix>, red_color: bool)")
+                formatter.write_str("a sequence of Node<T, V, Ix>")
             }
 
             fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
                 let mut nodes = Vec::new();
-                let mut colors = BitVec::new();
-                while let Some((node, color)) = seq.next_element()? {
+                while let Some(node) = seq.next_element()? {
                     nodes.push(node);
-                    colors.push(color);
                 }
-                Ok(NodeVecDe { nodes, colors })
+                Ok(NodeVecDe(nodes))
             }
         }
 
@@ -979,9 +962,12 @@ where
     Ix: IndexType + Deserialize<'de>,
 {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let (node_vec, root) = <(NodeVecDe<T, V, Ix>, Ix)>::deserialize(deserializer)?;
-        let (nodes, colors) = node_vec.take();
-        Ok(IntervalMap { nodes, colors, root })
+        let (node_vec, colors, root) = <(NodeVecDe<T, V, Ix>, BitVec, Ix)>::deserialize(deserializer)?;
+        Ok(IntervalMap {
+            nodes: node_vec.0,
+            colors,
+            root,
+        })
     }
 }
 

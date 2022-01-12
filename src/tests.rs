@@ -8,7 +8,6 @@ use std::fmt::{Debug, Write};
 use std::fs::File;
 use std::path::Path;
 use rand::prelude::*;
-use bit_vec::BitVec;
 
 use super::*;
 
@@ -18,7 +17,7 @@ fn validate_tree_recursive<T, V, Ix>(tree: &IntervalMap<T, V, Ix>, index: Ix, up
 where T: PartialOrd + Copy,
       Ix: IndexType,
 {
-    assert!(!visited[index.get()], "The tree contains a cycle: node {} was visited twice", index);
+    assert!(!visited.get(index.get()), "The tree contains a cycle: node {} was visited twice", index);
     visited.set(index.get(), true);
 
     let node = &tree.nodes[index.get()];
@@ -81,7 +80,7 @@ fn validate<T: PartialOrd + Copy, V, Ix: IndexType>(tree: &IntervalMap<T, V, Ix>
     assert!(interval == node.subtree_interval, "Interval != subtree interval for node {}", tree.root);
 
     for i in 0..tree.len() {
-        assert!(visited[i], "The tree is disjoint: node {} has no connection to the root", i);
+        assert!(visited.get(i), "The tree is disjoint: node {} has no connection to the root", i);
     }
 }
 

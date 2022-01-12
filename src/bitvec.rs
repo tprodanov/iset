@@ -12,7 +12,7 @@ fn get_byte_len(bit_len: usize) -> usize {
     (bit_len >> IX_SHIFT) + (bit_len & IX_MASK > 0) as usize
 }
 
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug)]
 pub(crate) struct BitVec {
     len: usize,

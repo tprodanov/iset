@@ -169,10 +169,22 @@ impl<T: PartialOrd + Copy, Ix: IndexType> IntervalSet<T, Ix> {
         self.inner.smallest().map(|(interval, _)| interval)
     }
 
+    /// Removes and returns the smallest interval in the set (in lexicographical order).
+    /// Takes *O(log N)*. Returns `None` if the set is empty.
+    pub fn remove_smallest(&mut self) -> Option<Range<T>> {
+        self.inner.remove_smallest().map(|(interval, _)| interval)
+    }
+
     /// Returns the largest interval in the set (in lexicographical order).
     /// Takes *O(log N)*. Returns `None` if the set is empty.
     pub fn largest(&self) -> Option<Range<T>> {
         self.inner.largest().map(|(interval, _)| interval)
+    }
+
+    /// Removes and returns the largest interval in the set (in lexicographical order).
+    /// Takes *O(log N)*. Returns `None` if the set is empty.
+    pub fn remove_largest(&mut self) -> Option<Range<T>> {
+        self.inner.remove_largest().map(|(interval, _)| interval)
     }
 
     /// Iterates over intervals `x..y` that overlap the `query`.
@@ -194,8 +206,8 @@ impl<T: PartialOrd + Copy, Ix: IndexType> IntervalSet<T, Ix> {
 
     /// Consumes [IntervalSet](struct.IntervalSet.html) and iterates over intervals `x..y` that overlap the `query`.
     /// See [iter](#method.iter) for more details.
-    pub fn into_iter<R: RangeBounds<T>>(self, query: R) -> IntoIterSet<T, (), R, Ix> {
-        IntoIterSet::new(self.inner, query)
+    pub fn into_iter<R: RangeBounds<T>>(self, query: R) -> IntoIntervals<T, (), R, Ix> {
+        IntoIntervals::new(self.inner, query)
     }
 
     /// Creates an unsorted iterator over all intervals `x..y`.
@@ -205,17 +217,17 @@ impl<T: PartialOrd + Copy, Ix: IndexType> IntervalSet<T, Ix> {
     }
 
     /// Consumes `IntervalSet` and creates an unsorted iterator over all intervals `x..y`.
-    pub fn unsorted_into_iter(self) -> UnsIntoIterSet<T, (), Ix> {
-        UnsIntoIterSet::new(self.inner)
+    pub fn unsorted_into_iter(self) -> UnsIntoIntervals<T, (), Ix> {
+        UnsIntoIntervals::new(self.inner)
     }
 }
 
 impl<T: PartialOrd + Copy, Ix: IndexType> core::iter::IntoIterator for IntervalSet<T, Ix> {
-    type IntoIter = IntoIterSet<T, (), core::ops::RangeFull, Ix>;
+    type IntoIter = IntoIntervals<T, (), core::ops::RangeFull, Ix>;
     type Item = Range<T>;
 
     fn into_iter(self) -> Self::IntoIter {
-        IntoIterSet::new(self.inner, ..)
+        IntoIntervals::new(self.inner, ..)
     }
 }
 

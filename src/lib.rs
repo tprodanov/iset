@@ -729,7 +729,7 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
         }
     }
 
-    /// Removes the smallest interval `x..y` (in lexicographical order) from the map.
+    /// Removes the smallest interval `x..y` (in lexicographical order) from the map and returns pair `(x..y, value)`.
     /// Takes *O(log N)*. Returns `None` if the map is empty.
     pub fn remove_smallest(&mut self) -> Option<(Range<T>, V)> {
         if !self.root.defined() {
@@ -764,7 +764,7 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
         }
     }
 
-    /// Removes the largest interval `x..y` (in lexicographical order) from the map.
+    /// Removes the largest interval `x..y` (in lexicographical order) from the map and returns pair `(x..y, value)`.
     /// Takes *O(log N)*. Returns `None` if the map is empty.
     pub fn remove_largest(&mut self) -> Option<(Range<T>, V)> {
         if !self.root.defined() {
@@ -828,6 +828,24 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
         IntoIter::new(self, query)
     }
 
+    /// Consumes [IntervalMap](struct.IntervalMap.html) and
+    /// iterates over pairs `(x..y, value)` that overlap the `query`.
+    /// See [iter](#method.iter) for more details.
+    pub fn into_intervals<R>(self, query: R) -> IntoIntervals<T, V, R, Ix>
+    where R: RangeBounds<T>,
+    {
+        IntoIntervals::new(self, query)
+    }
+
+    /// Consumes [IntervalMap](struct.IntervalMap.html) and
+    /// iterates over values, for which intervals that overlap the `query`.
+    /// See [iter](#method.iter) for more details.
+    pub fn into_values<R>(self, query: R) -> IntoValues<T, V, R, Ix>
+    where R: RangeBounds<T>,
+    {
+        IntoValues::new(self, query)
+    }
+
     /// Iterates over pairs `(x..y, &value)` that overlap the `point`.
     /// See [iter](#method.iter) for more details.
     pub fn overlap<'a>(&'a self, point: T) -> Iter<'a, T, V, RangeInclusive<T>, Ix> {
@@ -887,6 +905,16 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
     /// Consumes `IntervalMap` and creates an unsorted iterator over all pairs `(x..y, value)`.
     pub fn unsorted_into_iter(self) -> UnsIntoIter<T, V, Ix> {
         UnsIntoIter::new(self)
+    }
+
+    /// Consumes `IntervalMap` and creates an unsorted iterator over all intervals `x..y`.
+    pub fn unsorted_into_intervals(self) -> UnsIntoIntervals<T, V, Ix> {
+        UnsIntoIntervals::new(self)
+    }
+
+    /// Consumes `IntervalMap` and creates an unsorted iterator over all values.
+    pub fn unsorted_into_values(self) -> UnsIntoValues<T, V, Ix> {
+        UnsIntoValues::new(self)
     }
 }
 

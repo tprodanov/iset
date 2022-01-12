@@ -282,17 +282,24 @@ macro_rules! into_iterator {
 }
 
 into_iterator! {
-    #[doc="Iterator over pairs `(x..y, value)`. Takes ownership of `IntervalMap`."]
+    #[doc="Iterator over pairs `(x..y, value)`. Takes ownership of the interval map/set."]
     #[derive(Debug)]
     struct IntoIter -> (Range<T>, V),
     node -> (node.interval.to_range(), mem::replace(&mut node.value, unsafe { mem::zeroed() }))
 }
 
 into_iterator! {
-    #[doc="Iterator over intervals `x..y`. Takes ownership of `IntervalSet`."]
+    #[doc="Iterator over intervals `x..y`. Takes ownership of the interval map/set."]
     #[derive(Debug)]
-    struct IntoIterSet -> Range<T>,
+    struct IntoIntervals -> Range<T>,
     node -> node.interval.to_range()
+}
+
+into_iterator! {
+    #[doc="Iterator over values. Takes ownership of the interval map/set."]
+    #[derive(Debug)]
+    struct IntoValues -> V,
+    node -> mem::replace(&mut node.value, unsafe { mem::zeroed() })
 }
 
 /// Macro that generates unsorted iterator over IntervalMap.
@@ -436,15 +443,22 @@ macro_rules! unsorted_into_iterator {
 }
 
 unsorted_into_iterator! {
-    #[doc="Unsorted IntoIterator over pairs `(x..y, V)`. Takes ownership of `IntervalMap`."]
+    #[doc="Unsorted IntoIterator over pairs `(x..y, V)`. Takes ownership of the interval map/set."]
     #[derive(Debug)]
     struct UnsIntoIter -> (Range<T>, V),
     node -> (node.interval.to_range(), node.value)
 }
 
 unsorted_into_iterator! {
-    #[doc="Unsorted IntoIterator over intervals `x..y`. Takes ownership of `IntervalSet`."]
+    #[doc="Unsorted IntoIterator over intervals `x..y`. Takes ownership of the interval map/set."]
     #[derive(Debug)]
-    struct UnsIntoIterSet -> Range<T>,
+    struct UnsIntoIntervals -> Range<T>,
     node -> node.interval.to_range()
+}
+
+unsorted_into_iterator! {
+    #[doc="Unsorted IntoIterator over intervals `x..y`. Takes ownership of the interval map/set."]
+    #[derive(Debug)]
+    struct UnsIntoValues -> V,
+    node -> node.value
 }

@@ -219,83 +219,136 @@ fn check_interval_incl<T: PartialOrd + Copy>(start: T, end: T) {
     }
 }
 
-/// Map with
+/// Map with interval keys (`x..y`).
 ///
 /// Range bounds should implement `PartialOrd` and `Copy`, for example any
 /// integer or float types. However, you cannot use values that cannot be used in comparison (such as `NAN`).
 /// There are no restrictions on values.
 ///
-/// # Insertion, search and removal.
+/// # Example.
+///```rust
+/// #[macro_use] extern crate iset;
 ///
-/// All three iterations take *O(log N)*. Interval map supports duplicate intervals, but
+/// let mut map = interval_map!{ 20..30 => 'a', 15..25 => 'b', 10..20 => 'c' };
+/// assert_eq!(map.insert(10..20, 'd'), Some('c'));
+/// assert_eq!(map.insert(5..15, 'e'), None);
 ///
-/// ```rust
-/// let mut map = iset::IntervalMap::new();
-/// map.insert(20..30, "a");
-/// map.insert(15..25, "b");
-/// map.insert(10..20, "c");
-///
+/// // Iterator over all pairs (range, value). Output is sorted.
 /// let a: Vec<_> = map.iter(..).collect();
-/// assert_eq!(a, &[(10..20, &"c"), (15..25, &"b"), (20..30, &"a")]);
+/// assert_eq!(a, &[(5..15, &'e'), (10..20, &'d'), (15..25, &'b'), (20..30, &'a')]);
 ///
 /// // Iterate over intervals that overlap query (..20 here). Output is sorted.
 /// let b: Vec<_> = map.intervals(..20).collect();
-/// assert_eq!(b, &[10..20, 15..25]);
+/// assert_eq!(b, &[5..15, 10..20, 15..25]);
+///
+/// assert_eq!(map[15..25], 'b');
+/// // Replace 15..25 => 'b' into 'z'.
+/// *map.get_mut(15..25).unwrap() = 'z';
 ///
 /// // Iterate over values that overlap query (20.. here). Output is sorted by intervals.
 /// let c: Vec<_> = map.values(20..).collect();
-/// assert_eq!(c, &[&"b", &"a"]);
+/// assert_eq!(c, &[&'z', &'a']);
+///
+/// // Remove 10..20 => 'd'.
+/// assert_eq!(map.remove(10..20), Some('d'));
 /// ```
 ///
-/// Insertion takes *O(log N)* and search takes *O(log N + K)* where *K* is the size of the output.
+/// # Insertion, search and removal.
 ///
-/// You can [insert](#method.insert) and [remove](#method.remove) intervals of type `x..y`.
-/// Next, you can get all intervals that overlap a query (`x..y`, `x..=y`, `x..`, `..`, etc) using methods
-/// [iter](#method.iter), [intervals](#method.intervals) and [values](#method.values).
-/// Methods [overlap](#method.overlap), [intervals_overlap](#method.intervals_overlap) and
-/// [values_overlap](#method.values_overlap) allow to search for intervals/values that overlap a single point
-/// (same as `x..=x`). It is possible to extract value by the interval in `O(log N)` using
-/// [get](#method.get) and [get_mut](#method.get_mut).
+/// All three operations take *O(log N)*.
+/// Although binary tree allows for duplicate keys, here we require all keys to be unique.
+/// Similarly to `HashMap` or `BTreeMap`, [insert](#method.insert) returns `Some(old_value)` if the interval was already
+/// present in the map. Note, that the key is not updated even if the value is replaced. This matters for types
+/// that can be `==` without being identical.
 ///
-/// Additionally, you can use mutable iterators [iter_mut](#method.iter_mut), [values_mut](#method.values_mut)
-/// as well as [overlap_mut](#method.overlap_mut) and [values_overlap_mut](#method.values_overlap_mut).
+/// Search operations [contains](#method.contains), [get](#method.get) and [get_mut](#method.get_mut) is usually faster
+/// than insertion or removal, as the tree does not need to be rebalanced.
 ///
-/// You can get a value that corresponds to the [smallest](#method.smallest) or [largest](#method.largest)
-/// interval in *O(log N)*.
+/// You can remove nodes from the tree using [remove](#method.remove) method given the interval key.
+/// Currently, it is not feasible to have a method that removes multiple nodes at once
+/// (for example based on a predicate).
 ///
-/// You can construct [IntervalMap](struct.IntervalMap.html) using `collect()`:
-/// ```rust
-/// let map: iset::IntervalMap<_, _> = vec![(10..20, "a"), (0..20, "b")]
-///                                        .into_iter().collect();
-/// ```
+/// Additionally, it is possible to get or remove the entry with the smallest/largest interval in the map
+/// (in lexicographical order), see [smallest](#method.smallest), [largest](#method.largest), etc.
+/// These methods take *O(log N)* as well.
 ///
-/// You can also construct [IntervalMap](struct.IntervalMap.html) using [interval_map!](macro.interval_map.html) macro:
+/// Method [range](#method.range) allows to extract the range that covers all intervals in *O(1)*.
+///
+/// # Iteration.
+///
+/// Interval map allows to quickly find all intervals that overlap a query interval in *O(log N + K)* where *K* is
+/// the size of the output. As a bonus, returned items are always sorted by intervals (in lexicographical order).
+/// Iteration methods include:
+/// - [iter](#method.iter): iterate over pairs `(x..y, &value)`,
+/// - [intervals](#method.intervals): iterate over interval keys `x..y`,
+/// - [values](#method.values): iterate over values `&value`,
+/// - Mutable iterators [iter_mut](#method.iter_mut) and [values_mut](#method.values_mut),
+/// - Into iterators [into_iter](#method.into_iter), [into_intervals](#method.into_intervals) and
+/// [into_values](#method.into_values).
+///
+/// Additionally, all above methods have their `unsorted_` counterparts
+/// (for example [unsorted_iter](#method.unsorted_iter)).
+/// These iterators traverse the whole map in an arbitrary (unsorted) order.
+/// Although both `map.iter(..)` and `map.unsorted_iter()` both output all entries in the map and both take *O(N)*,
+/// unsorted iterator is slightly faster as it reads the memory consecutively instead of traversing the tree.
+///
+/// Methods `iter`, `intervals`, `values`, `iter_mut` and `values_mut` have alternatives [overlap](#method.overlap),
+/// [overlap_intervals](#method.overlap_intervals), ..., that allow to iterate over all entries that
+/// cover a single point `x` (same as `x..=x`).
+///
+/// # Index types.
+///
+/// Every node in the tree stores three indices (to the parent and two children), and as a result, memory usage can be
+/// reduced by reducing index sizes. In most cases, number of items in the map does not exceed `u32::MAX`, therefore
+/// we store indices as `u32` numbers by default (`iset::DefaultIx = u32`).
+/// You can use four integer types (`u8`, `u16`, `u32` or `u64`) as index types.
+/// Number of elements in the interval map cannot exceed `IndexType::MAX - 1`: for example a map with `u8` indices
+/// can store up to 255 items.
+///
+/// # Interval map creation.
+///
+/// An interval map can be created using the following methods:
 /// ```rust
 /// #[macro_use] extern crate iset;
+/// use iset::IntervalMap;
 ///
-/// let map = interval_map!{ 0..10 => "a", 5..15 => "b", -5..20 => "c" };
-/// let a: Vec<_> = map.iter(..).collect();
-/// assert_eq!(a, &[(-5..20, &"c"), (0..10, &"a"), (5..15, &"b")]);
+/// // Creates an empty interval map with the default index type (u32):
+/// let mut map = IntervalMap::new();
+/// map.insert(10..20, 'a');
+///
+/// // Creates an empty interval map and specifies index type (u16 here):
+/// let mut map = IntervalMap::<_, _, u16>::default();
+/// map.insert(10..20, 'a');
+///
+/// let mut map = IntervalMap::<_, _, u16>::with_capacity(10);
+/// map.insert(10..20, 'a');
+///
+/// // Creates an interval map with the default index type:
+/// let map = interval_map!{ 0..10 => 'a', 5..15 => 'b' };
+///
+/// // Creates an interval map and specifies index type:
+/// let map = interval_map!{ [u16] 0..10 => 'a', 5..15 => 'b' };
+///
+/// // Creates an interval map from a sorted iterator, takes O(N):
+/// let vec = vec![(0..10, 'b'), (5..15, 'a')];
+/// let map = IntervalMap::<_, _, u32>::from_sorted(vec.into_iter());
 /// ```
 ///
-/// # Index types:
-/// You can specify [index type](ix/trait.IndexType.html) (`u8`, `u16`, `u32` and `u64`) used in the inner
-/// representation of `IntervalMap` ([iset::DefaultIx](ix/type.DefaultIx.html) = u32`).
-/// Using smaller index types saves memory and slightly reduces running time.
+/// # Implementation, union and merge.
 ///
-/// Method [new](#method.new), macro [interval_map!](macro.interval_map.html) or function
-/// `collect()` create `IntervalMap` with index type `u32`. If you wish to use another index type you can use
-/// methods [default](#method.default) or [with_capacity](#method.with_capacity). For example:
-/// ```rust
-/// let mut map: iset::IntervalMap<_, _, u16> = iset::IntervalMap::default();
-/// map.insert(10..20, "a");
-/// ```
+/// To allow for fast retrieval of all intervals overlapping a query, we store the range of the subtree in each node
+/// of the tree. Additionally, each node stores indices to the parent and to two children.
+/// As a result, size of the map is approximately `4 * sizeof(T) + sizeof(V) + 3 * sizeof(Ix)`.
 ///
-/// Finally, you can construct an `IntervalMap` from a sorted iterator in *O(N)* (requires index type):
-/// ```rust
-/// let map: iset::IntervalMap<_, _, u32> = iset::IntervalMap::from_sorted(
-///     vec![(10..20, "a"), (15..20, "b")].into_iter());
-/// ```
+/// In order to reduce number of heap allocations and access memory consecutively, we store nodes in a vector.
+/// This does not impact time complexity of all methods except for *merge* and *split*.
+/// In a heap-allocated tree, merge takes *O(M log (N / M + 1))* where *M* is the size of the smaller tree.
+/// Here, we are required to merge sorted iterators and construct a tree using the sorted iterator as input,
+/// which takes *O(N + M)*.
+///
+/// Because of that, this crate does not implement merge or split, however, these procedures can be emulated using
+/// [from_sorted](#method.from_sorted), [itertools::merge](https://docs.rs/itertools/latest/itertools/fn.merge.html)
+/// and [Iterator::partition](https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.partition) in linear time.
 #[derive(Clone)]
 pub struct IntervalMap<T, V, Ix = DefaultIx>
 where T: PartialOrd + Copy,
@@ -359,11 +412,11 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
                 // Set red.
                 self.colors.set1(start);
             }
-            return Ix::new(start).unwrap();
+            return Ix::new(start).unwrap_or_else(|error| panic!("{}", error));
         }
 
         let center = (start + end) / 2;
-        let center_ix = Ix::new(center).unwrap();
+        let center_ix = Ix::new(center).unwrap_or_else(|error| panic!("{}", error));
         if start < center {
             let left_ix = self.init_from_sorted(start, center, rev_depth - 1);
             self.nodes[center].left = left_ix;
@@ -599,7 +652,7 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
     pub fn insert(&mut self, interval: Range<T>, value: V) -> Option<V> {
         let interval = Interval::new(&interval);
         let mut current = self.root;
-        let new_index = Ix::new(self.nodes.len()).unwrap();
+        let new_index = Ix::new(self.nodes.len()).unwrap_or_else(|error| panic!("{}", error));
 
         if !current.defined() {
             self.root = new_index;
@@ -688,6 +741,17 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
     /// Panics if `interval` is empty (`start >= end`) or contains a value that cannot be compared (such as `NAN`).
     pub fn remove(&mut self, interval: Range<T>) -> Option<V> {
         self.remove_at(self.find_index(&interval))
+    }
+
+    /// Returns a range of interval keys in the map, takes *O(1)*. Returns `None` if the map is empty.
+    /// `out.start` is the minimal start of all intervals in the map,
+    /// and `out.end` is the maximal end of all intervals in the map.
+    pub fn range(&self) -> Option<Range<T>> {
+        if self.root.defined() {
+            Some(self.nodes[self.root.get()].subtree_interval.to_range())
+        } else {
+            None
+        }
     }
 
     fn smallest_index(&self) -> Ix {
@@ -848,30 +912,35 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
 
     /// Iterates over pairs `(x..y, &value)` that overlap the `point`.
     /// See [iter](#method.iter) for more details.
+    #[inline]
     pub fn overlap<'a>(&'a self, point: T) -> Iter<'a, T, V, RangeInclusive<T>, Ix> {
         Iter::new(self, point..=point)
     }
 
     /// Iterates over intervals `x..y` that overlap the `point`.
     /// See [iter](#method.iter) for more details.
+    #[inline]
     pub fn intervals_overlap<'a>(&'a self, point: T) -> Intervals<'a, T, V, RangeInclusive<T>, Ix> {
         Intervals::new(self, point..=point)
     }
 
     /// Iterates over values that overlap the `point`.
     /// See [iter](#method.iter) for more details.
+    #[inline]
     pub fn values_overlap<'a>(&'a self, point: T) -> Values<'a, T, V, RangeInclusive<T>, Ix> {
         Values::new(self, point..=point)
     }
 
     /// Iterator over pairs `(x..y, &mut value)` that overlap the `point`.
     /// See [iter](#method.iter) for more details.
+    #[inline]
     pub fn overlap_mut<'a>(&'a mut self, point: T) -> IterMut<'a, T, V, RangeInclusive<T>, Ix> {
         IterMut::new(self, point..=point)
     }
 
     /// Iterates over *mutable* values that overlap the `point`.
     /// See [iter](#method.iter) for more details.
+    #[inline]
     pub fn values_overlap_mut<'a>(&'a mut self, point: T) -> ValuesMut<'a, T, V, RangeInclusive<T>, Ix> {
         ValuesMut::new(self, point..=point)
     }
@@ -937,6 +1006,14 @@ impl<T: PartialOrd + Copy, V> core::iter::FromIterator<(Range<T>, V)> for Interv
             map.insert(range, value);
         }
         map
+    }
+}
+
+impl<T: PartialOrd + Copy, V, Ix: IndexType> core::ops::Index<Range<T>> for IntervalMap<T, V, Ix> {
+    type Output = V;
+
+    fn index(&self, range: Range<T>) -> &Self::Output {
+        self.get(range).expect("No entry found for range")
     }
 }
 

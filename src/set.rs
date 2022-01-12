@@ -76,7 +76,10 @@ use super::iter::*;
 /// ```
 /// See [IndexType](../ix/trait.IndexType.html) for details.
 #[derive(Clone)]
-pub struct IntervalSet<T: PartialOrd + Copy, Ix: IndexType = DefaultIx> {
+pub struct IntervalSet<T, Ix = DefaultIx>
+where T: PartialOrd + Copy,
+      Ix: IndexType,
+{
     inner: IntervalMap<T, (), Ix>,
 }
 

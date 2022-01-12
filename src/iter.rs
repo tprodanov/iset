@@ -146,7 +146,11 @@ macro_rules! iterator {
         $node:ident -> $out:expr, {$( $mut_:tt )?}
     ) => {
         $(#[$outer])*
-        pub struct $name<'a, T: PartialOrd + Copy, V, R: RangeBounds<T>, Ix: IndexType> {
+        pub struct $name<'a, T, V, R, Ix>
+        where T: PartialOrd + Copy,
+              R: RangeBounds<T>,
+              Ix: IndexType,
+        {
             pub(crate) index: Ix,
             range: R,
             nodes: &'a $( $mut_ )? [Node<T, V, Ix>],
@@ -231,7 +235,11 @@ macro_rules! into_iterator {
         $node:ident -> $out:expr
     ) => {
         $(#[$outer])*
-        pub struct $name<T: PartialOrd + Copy, V, R: RangeBounds<T>, Ix: IndexType> {
+        pub struct $name<T, V, R, Ix>
+        where T: PartialOrd + Copy,
+              R: RangeBounds<T>,
+              Ix: IndexType,
+        {
             index: Ix,
             range: R,
             nodes: Vec<Node<T, V, Ix>>,
@@ -296,15 +304,13 @@ macro_rules! unsorted_iterator {
         $node:ident -> $out:expr, {$( $mut_:tt )?}
     ) => {
         $(#[$outer])*
-        pub struct $name<'a, T: PartialOrd + Copy, V, Ix: IndexType> {
-            inner: $iter_type,
-        }
+        pub struct $name<'a, T, V, Ix>($iter_type)
+        where T: PartialOrd + Copy,
+              Ix: IndexType;
 
         impl<'a, T: PartialOrd + Copy, V, Ix: IndexType> $name<'a, T, V, Ix> {
             pub(crate) fn new(tree: &'a $( $mut_ )? IntervalMap<T, V, Ix>) -> Self {
-                Self {
-                    inner: tree.nodes.$get_iter(),
-                }
+                Self(tree.nodes.$get_iter())
             }
         }
 
@@ -312,7 +318,7 @@ macro_rules! unsorted_iterator {
             type Item = $elem;
 
             fn next(&mut self) -> Option<Self::Item> {
-                match self.inner.next() {
+                match self.0.next() {
                     Some($node) => Some($out),
                     None => None,
                 }
@@ -320,13 +326,13 @@ macro_rules! unsorted_iterator {
 
             #[inline]
             fn size_hint(&self) -> (usize, Option<usize>) {
-                self.inner.size_hint()
+                self.0.size_hint()
             }
         }
 
         impl<'a, T: PartialOrd + Copy, V, Ix: IndexType> DoubleEndedIterator for $name<'a, T, V, Ix> {
             fn next_back(&mut self) -> Option<Self::Item> {
-                match self.inner.next_back() {
+                match self.0.next_back() {
                     Some($node) => Some($out),
                     None => None,
                 }
@@ -338,7 +344,7 @@ macro_rules! unsorted_iterator {
         impl<'a, T: PartialOrd + Copy, V, Ix: IndexType> ExactSizeIterator for $name<'a, T, V, Ix> {
             #[inline]
             fn len(&self) -> usize {
-                self.inner.len()
+                self.0.len()
             }
         }
     };
@@ -392,15 +398,13 @@ macro_rules! unsorted_into_iterator {
         $node:ident -> $out:expr
     ) => {
         $(#[$outer])*
-        pub struct $name<T: PartialOrd + Copy, V, Ix: IndexType> {
-            inner: alloc::vec::IntoIter<Node<T, V, Ix>>,
-        }
+        pub struct $name<T, V, Ix>(alloc::vec::IntoIter<Node<T, V, Ix>>)
+        where T: PartialOrd + Copy,
+              Ix: IndexType;
 
         impl<T: PartialOrd + Copy, V, Ix: IndexType> $name<T, V, Ix> {
             pub(crate) fn new(tree: IntervalMap<T, V, Ix>) -> Self {
-                Self {
-                    inner: tree.nodes.into_iter(),
-                }
+                Self(tree.nodes.into_iter())
             }
         }
 
@@ -408,7 +412,7 @@ macro_rules! unsorted_into_iterator {
             type Item = $elem;
 
             fn next(&mut self) -> Option<Self::Item> {
-                match self.inner.next() {
+                match self.0.next() {
                     Some($node) => Some($out),
                     None => None,
                 }
@@ -416,7 +420,7 @@ macro_rules! unsorted_into_iterator {
 
             #[inline]
             fn size_hint(&self) -> (usize, Option<usize>) {
-                self.inner.size_hint()
+                self.0.size_hint()
             }
         }
 
@@ -425,7 +429,7 @@ macro_rules! unsorted_into_iterator {
         impl<T: PartialOrd + Copy, V, Ix: IndexType> ExactSizeIterator for $name<T, V, Ix> {
             #[inline]
             fn len(&self) -> usize {
-                self.inner.len()
+                self.0.len()
             }
         }
     };

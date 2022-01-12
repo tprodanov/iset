@@ -5,25 +5,16 @@
 //! The tree takes *O(N)* space and allows insertion, removal and search in *O(log N)*.
 //! [IntervalMap](struct.IntervalMap.html) allows to search for all entries overlapping a query (interval or a point,
 //! output would be sorted by keys). Search takes *O(log N + K)* where *K* is the size of the output.
-//! Additionally, you can extract the smallest/largest interval and their values in *O(log N)*.
 //!
 //! [IntervalSet](struct.IntervalSet.html) is a newtype over [IntervalMap](struct.IntervalMap.html) with empty values.
 //!
 //! Any iterator that goes over an [IntervalMap](struct.IntervalMap.html) or [IntervalSet](struct.IntervalSet.html)
 //! returns intervals/values sorted lexicographically by intervals.
 //!
-//! This crate allows to write interval maps and sets to .dot files
-//! (see [IntervalMap::write_dot](struct.IntervalMap.html#method.write_dot),
-//! [IntervalMap::write_dot_without_values](struct.IntervalMap.html#method.write_dot_without_values) and
-//! [IntervalSet::write_dot](struct.IntervalSet.html#method.write_dot)).
-//! You can disable this feature using `cargo build --no-default-features`,
-//! in that case the crate supports `no_std` environments.
-//!
-//! This crate supports serialization/deserialization using an optional feature `serde`.
-
-// TODO:
-// - union, split
-// - remove by value
+//! Optional feature `dot` allows to write interval maps and sets to .dot files
+//! (see [IntervalMap::write_dot](struct.IntervalMap.html#method.write_dot)).
+//! Additionally, this crate supports serialization/deserialization using an optional feature `serde`.
+//! Without `dot` or `serde` features, this crate supports `no_std` environments.
 
 #![no_std]
 
@@ -206,7 +197,7 @@ fn check_interval_incl<T: PartialOrd + Copy>(start: T, end: T) {
     }
 }
 
-/// Map with interval keys (ranges `x..y`).
+/// Map with interval keys (`x..y`).
 ///
 /// Range bounds should implement `PartialOrd` and `Copy`, for example any
 /// integer or float types. However, you cannot use values that cannot be used in comparison (such as `NAN`).
@@ -280,7 +271,10 @@ fn check_interval_incl<T: PartialOrd + Copy>(start: T, end: T) {
 ///     vec![(10..20, "a"), (15..20, "b")].into_iter());
 /// ```
 #[derive(Clone)]
-pub struct IntervalMap<T: PartialOrd + Copy, V, Ix: IndexType = DefaultIx> {
+pub struct IntervalMap<T, V, Ix = DefaultIx>
+where T: PartialOrd + Copy,
+      Ix: IndexType,
+{
     nodes: Vec<Node<T, V, Ix>>,
     // true if the node is red, false if black.
     colors: BitVec,
@@ -660,15 +654,17 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
         self.remove_at(self.find_index(&interval))
     }
 
-    /// Removes the first interval (in lexicographical order) that overlaps `query` and for which `predicate` is `true`.
-    /// If an interval was removed, returns `Some((range, value))`, otherwise returns `None`
+    /// Removes the first interval (in lexicographical order) that **overlaps** `query`
+    /// and for which `predicate` is `true`.
+    /// If an interval was removed, returns `Some((range, value))`, otherwise returns `None`.
     ///
     /// ```rust
     /// let mut map = iset::interval_map!{ 0..10 => 'a', 5..15 => 'b', 10..20 => 'a', 15..25 => 'a' };
-    /// assert_eq!(map.remove_if(12..22, |_range, value| *value == 'a'), Some((10..20, 'a')));
+    /// assert_eq!(map.remove_first_overlap(12..22, |_range, value| *value == 'a'),
+    ///            Some((10..20, 'a')));
     /// assert!(!map.contains(10..20));
     /// ```
-    pub fn remove_if<R, P>(&mut self, query: R, mut predicate: P) -> Option<(Range<T>, V)>
+    pub fn remove_first_overlap<R, P>(&mut self, query: R, mut predicate: P) -> Option<(Range<T>, V)>
     where R: RangeBounds<T>,
           P: FnMut(Range<T>, &V) -> bool,
     {

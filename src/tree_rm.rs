@@ -10,13 +10,6 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
         (*ptr_i).swap_with(&mut *ptr_j);
     }
 
-    fn fix_intervals_up(&mut self, mut ix: Ix) {
-        while ix.defined() {
-            self.update_subtree_interval(ix);
-            ix = self.nodes[ix.get()].parent;
-        }
-    }
-
     /// Removes node at index i by swapping it with the last node.
     /// This function updates all links that lead to the node that was previously the last node.
     fn swap_remove(&mut self, ix: Ix) -> V {

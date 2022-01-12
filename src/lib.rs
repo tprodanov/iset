@@ -52,7 +52,7 @@ use iter::*;
 pub use set::IntervalSet;
 use bitvec::BitVec;
 
-#[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord)]
+#[derive(Clone, Debug, PartialEq, PartialOrd)]
 struct Interval<T: PartialOrd + Copy> {
     start: T,
     end: T,
@@ -66,6 +66,7 @@ impl<T: PartialOrd + Copy + Display> Display for Interval<T> {
 
 impl<T: PartialOrd + Copy> Interval<T> {
     fn new(range: &Range<T>) -> Self {
+        check_interval(range.start, range.end);
         Interval {
             start: range.start,
             end: range.end,
@@ -101,6 +102,27 @@ impl<T: PartialOrd + Copy> Interval<T> {
     }
 }
 
+impl<T: PartialOrd + Copy> Ord for Interval<T> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        // Implement cmp by ourselves because T can be PartialOrd.
+        if self.start < other.start {
+            Ordering::Less
+        } else if self.start == other.start {
+            if self.end < other.end {
+                Ordering::Less
+            } else if self.end == other.end {
+                Ordering::Equal
+            } else {
+                Ordering::Greater
+            }
+        } else {
+            Ordering::Greater
+        }
+    }
+}
+
+impl<T: PartialOrd + Copy> Eq for Interval<T> { }
+
 #[cfg(feature = "serde")]
 impl<T: PartialOrd + Copy + Serialize> Serialize for Interval<T> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
@@ -128,10 +150,10 @@ struct Node<T: PartialOrd + Copy, V, Ix: IndexType> {
 }
 
 impl<T: PartialOrd + Copy, V, Ix: IndexType> Node<T, V, Ix> {
-    fn new(range: Range<T>, value: V) -> Self {
+    fn new(interval: Interval<T>, value: V) -> Self {
         Node {
-            interval: Interval::new(&range),
-            subtree_interval: Interval::new(&range),
+            interval: interval.clone(),
+            subtree_interval: interval,
             value,
             left: Ix::MAX,
             right: Ix::MAX,
@@ -197,11 +219,15 @@ fn check_interval_incl<T: PartialOrd + Copy>(start: T, end: T) {
     }
 }
 
-/// Map with interval keys (`x..y`).
+/// Map with
 ///
 /// Range bounds should implement `PartialOrd` and `Copy`, for example any
 /// integer or float types. However, you cannot use values that cannot be used in comparison (such as `NAN`).
 /// There are no restrictions on values.
+///
+/// # Insertion, search and removal.
+///
+/// All three iterations take *O(log N)*. Interval map supports duplicate intervals, but
 ///
 /// ```rust
 /// let mut map = iset::IntervalMap::new();
@@ -358,7 +384,7 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
     pub fn from_sorted<I>(iter: I) -> Self
     where I: Iterator<Item = (Range<T>, V)>,
     {
-        let nodes: Vec<_> = iter.map(|(range, value)| Node::new(range, value)).collect();
+        let nodes: Vec<_> = iter.map(|(range, value)| Node::new(Interval::new(&range), value)).collect();
         let n = nodes.len();
         let mut map = Self {
             nodes,
@@ -558,53 +584,66 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
         }
     }
 
-    /// Inserts an interval `x..y` and its value. Takes *O(log N)*.
+    fn fix_intervals_up(&mut self, mut ix: Ix) {
+        while ix.defined() {
+            self.update_subtree_interval(ix);
+            ix = self.nodes[ix.get()].parent;
+        }
+    }
+
+    /// Inserts an interval `x..y` and its value into the map. Takes *O(log N)*.
+    ///
+    /// If the map did not contain the interval, returns `None`. Otherwise returns the old value.
     ///
     /// Panics if `interval` is empty (`start >= end`) or contains a value that cannot be compared (such as `NAN`).
-    pub fn insert(&mut self, interval: Range<T>, value: V) {
-        check_interval(interval.start, interval.end);
-        let new_ind = Ix::new(self.nodes.len()).unwrap_or_else(|e| panic!("{}", e));
-        let mut new_node = Node::new(interval, value);
-        if !self.root.defined() {
-            self.root = Ix::new(0).unwrap();
-            self.nodes.push(new_node);
+    pub fn insert(&mut self, interval: Range<T>, value: V) -> Option<V> {
+        let interval = Interval::new(&interval);
+        let mut current = self.root;
+        let new_index = Ix::new(self.nodes.len()).unwrap();
+
+        if !current.defined() {
+            self.root = new_index;
+            self.nodes.push(Node::new(interval, value));
             // New node should be black.
             self.colors.push(false);
-            return;
+            return None;
         }
 
-        let mut current = self.root;
         loop {
-            self.nodes[current.get()].subtree_interval.extend(&new_node.interval);
-            let child = if new_node.interval <= self.nodes[current.get()].interval {
-                &mut self.nodes[current.get()].left
-            } else {
-                &mut self.nodes[current.get()].right
+            let node = &mut self.nodes[current.get()];
+            let child = match interval.cmp(&node.interval) {
+                Ordering::Less => &mut node.left,
+                Ordering::Greater => &mut node.right,
+                Ordering::Equal => {
+                    let old_val = core::mem::replace(&mut node.value, value);
+                    self.fix_intervals_up(current);
+                    return Some(old_val);
+                }
             };
-            if !child.defined() {
-                *child = new_ind;
-                new_node.parent = current;
-                break;
-            } else {
+            if child.defined() {
                 current = *child;
+            } else {
+                let mut new_node = Node::new(interval, value);
+                *child = new_index;
+                new_node.parent = current;
+                self.nodes.push(new_node);
+                self.colors.push(true);
+                self.fix_intervals_up(current);
+                self.insert_repair(new_index);
+                return None;
             }
         }
-        self.nodes.push(new_node);
-        self.colors.push(true);
-        self.insert_repair(new_ind);
     }
 
     fn find_index(&self, interval: &Range<T>) -> Ix {
-        check_interval(interval.start, interval.end);
         let interval = Interval::new(interval);
         let mut index = self.root;
         while index.defined() {
             let node = &self.nodes[index.get()];
-            match interval.partial_cmp(&node.interval) {
-                Some(Ordering::Less) => index = node.left,
-                Some(Ordering::Greater) => index = node.right,
-                Some(Ordering::Equal) => return index,
-                None => panic!("Cannot order intervals"),
+            match interval.cmp(&node.interval) {
+                Ordering::Less => index = node.left,
+                Ordering::Greater => index = node.right,
+                Ordering::Equal => return index,
             }
         }
         index
@@ -618,7 +657,6 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
     }
 
     /// Returns value associated with `interval` (exact match).
-    /// If there are multiple matches, returns a value associated with any of them (order is unspecified).
     /// If there is no such interval, returns `None`.
     ///
     /// Panics if `interval` is empty (`start >= end`) or contains a value that cannot be compared (such as `NAN`).
@@ -632,7 +670,6 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
     }
 
     /// Returns mutable value associated with `interval` (exact match).
-    /// If there are multiple matches, returns a value associated with any of them (order is unspecified).
     /// If there is no such interval, returns `None`.
     ///
     /// Panics if `interval` is empty (`start >= end`) or contains a value that cannot be compared (such as `NAN`).
@@ -647,92 +684,96 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
 
     /// Removes an entry, associated with `interval` (exact match is required), takes *O(log N)*.
     /// Returns value if the interval was present in the map, and None otherwise.
-    /// If several intervals match the query interval, removes any one of them (order is unspecified).
     ///
     /// Panics if `interval` is empty (`start >= end`) or contains a value that cannot be compared (such as `NAN`).
     pub fn remove(&mut self, interval: Range<T>) -> Option<V> {
         self.remove_at(self.find_index(&interval))
     }
 
-    /// Removes the first interval (in lexicographical order) that **overlaps** `query`
-    /// and for which `predicate` is `true`.
-    /// If an interval was removed, returns `Some((range, value))`, otherwise returns `None`.
-    ///
-    /// ```rust
-    /// let mut map = iset::interval_map!{ 0..10 => 'a', 5..15 => 'b', 10..20 => 'a', 15..25 => 'a' };
-    /// assert_eq!(map.remove_first_overlap(12..22, |_range, value| *value == 'a'),
-    ///            Some((10..20, 'a')));
-    /// assert!(!map.contains(10..20));
-    /// ```
-    pub fn remove_first_overlap<R, P>(&mut self, query: R, mut predicate: P) -> Option<(Range<T>, V)>
-    where R: RangeBounds<T>,
-          P: FnMut(Range<T>, &V) -> bool,
-    {
-        let mut iter = self.iter(query);
-        while let Some((range, value)) = iter.next() {
-            if predicate(range, value) {
-                let index = iter.index;
-                core::mem::drop(iter);
-                // Previous range was consumed by the predicate.
-                let range = self.nodes[index.get()].interval.to_range();
-                // Index should be defined, therefore use unwrap.
-                let value = self.remove_at(index).unwrap();
-                return Some((range, value));
-            }
+    fn smallest_index(&self) -> Ix {
+        let mut index = self.root;
+        while self.nodes[index.get()].left.defined() {
+            index = self.nodes[index.get()].left;
         }
-        None
+        index
+    }
+
+    fn largest_index(&self) -> Ix {
+        let mut index = self.root;
+        while self.nodes[index.get()].right.defined() {
+            index = self.nodes[index.get()].right;
+        }
+        index
     }
 
     /// Returns the pair `(x..y, &value)` with the smallest interval `x..y` (in lexicographical order).
     /// Takes *O(log N)*. Returns `None` if the map is empty.
     pub fn smallest(&self) -> Option<(Range<T>, &V)> {
-        let mut index = self.root;
-        if !index.defined() {
-            return None;
+        if !self.root.defined() {
+            None
+        } else {
+            let node = &self.nodes[self.smallest_index().get()];
+            Some((node.interval.to_range(), &node.value))
         }
-        while self.nodes[index.get()].left.defined() {
-            index = self.nodes[index.get()].left;
-        }
-        Some((self.nodes[index.get()].interval.to_range(), &self.nodes[index.get()].value))
     }
 
     /// Returns the pair `(x..y, &mut value)` with the smallest interval `x..y` (in lexicographical order).
     /// Takes *O(log N)*. Returns `None` if the map is empty.
     pub fn smallest_mut(&mut self) -> Option<(Range<T>, &mut V)> {
-        let mut index = self.root;
-        if !index.defined() {
-            return None;
+        if !self.root.defined() {
+            None
+        } else {
+            let index = self.smallest_index();
+            let node = &mut self.nodes[index.get()];
+            Some((node.interval.to_range(), &mut node.value))
         }
-        while self.nodes[index.get()].left.defined() {
-            index = self.nodes[index.get()].left;
+    }
+
+    /// Removes the smallest interval `x..y` (in lexicographical order) from the map.
+    /// Takes *O(log N)*. Returns `None` if the map is empty.
+    pub fn remove_smallest(&mut self) -> Option<(Range<T>, V)> {
+        if !self.root.defined() {
+            None
+        } else {
+            let index = self.smallest_index();
+            let range = self.nodes[index.get()].interval.to_range();
+            Some((range, self.remove_at(index).unwrap()))
         }
-        Some((self.nodes[index.get()].interval.to_range(), &mut self.nodes[index.get()].value))
     }
 
     /// Returns the pair `(x..y, &value)` with the largest interval `x..y` (in lexicographical order).
     /// Takes *O(log N)*. Returns `None` if the map is empty.
     pub fn largest(&self) -> Option<(Range<T>, &V)> {
-        let mut index = self.root;
-        if !index.defined() {
-            return None;
+        if !self.root.defined() {
+            None
+        } else {
+            let node = &self.nodes[self.largest_index().get()];
+            Some((node.interval.to_range(), &node.value))
         }
-        while self.nodes[index.get()].right.defined() {
-            index = self.nodes[index.get()].right;
-        }
-        Some((self.nodes[index.get()].interval.to_range(), &self.nodes[index.get()].value))
     }
 
     /// Returns the pair `(x..y, &mut value)` with the largest interval `x..y` (in lexicographical order).
     /// Takes *O(log N)*. Returns `None` if the map is empty.
     pub fn largest_mut(&mut self) -> Option<(Range<T>, &mut V)> {
-        let mut index = self.root;
-        if !index.defined() {
-            return None;
+        if !self.root.defined() {
+            None
+        } else {
+            let index = self.largest_index();
+            let node = &mut self.nodes[index.get()];
+            Some((node.interval.to_range(), &mut node.value))
         }
-        while self.nodes[index.get()].right.defined() {
-            index = self.nodes[index.get()].right;
+    }
+
+    /// Removes the largest interval `x..y` (in lexicographical order) from the map.
+    /// Takes *O(log N)*. Returns `None` if the map is empty.
+    pub fn remove_largest(&mut self) -> Option<(Range<T>, V)> {
+        if !self.root.defined() {
+            None
+        } else {
+            let index = self.largest_index();
+            let range = self.nodes[index.get()].interval.to_range();
+            Some((range, self.remove_at(index).unwrap()))
         }
-        Some((self.nodes[index.get()].interval.to_range(), &mut self.nodes[index.get()].value))
     }
 
     /// Iterates over pairs `(x..y, &value)` that overlap the `query`.

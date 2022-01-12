@@ -141,11 +141,12 @@ impl<T: PartialOrd + Copy, Ix: IndexType> IntervalSet<T, Ix> {
         self.inner.shrink_to_fit()
     }
 
-    /// Inserts an interval `x..y`. Takes *O(log N)*.
+    /// Inserts an interval `x..y` to the set. If the set did not have this interval present, true is returned.
+    /// Takes *O(log N)*.
     ///
     /// Panics if `interval` is empty (`start >= end`) or contains a value that cannot be compared (such as `NAN`).
-    pub fn insert(&mut self, interval: Range<T>) {
-        self.inner.insert(interval, ());
+    pub fn insert(&mut self, interval: Range<T>) -> bool {
+        self.inner.insert(interval, ()).is_none()
     }
 
     /// Check if the interval set contains `interval` (exact match). Takes *O(log N)*.

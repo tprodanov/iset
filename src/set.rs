@@ -106,7 +106,9 @@ impl<T: PartialOrd + Copy, Ix: IndexType> IntervalSet<T, Ix> {
     /// Creates an interval set from a sorted iterator over intervals. Takes *O(N)*.
     ///
     /// Panics if the intervals are not sorted.
-    pub fn from_sorted<I: Iterator<Item = Range<T>>>(iter: I) -> Self {
+    pub fn from_sorted<I>(iter: I) -> Self
+    where I: Iterator<Item = Range<T>>,
+    {
         Self {
             inner: IntervalMap::from_sorted(iter.map(|range| (range, ()))),
         }
@@ -174,7 +176,9 @@ impl<T: PartialOrd + Copy, Ix: IndexType> IntervalSet<T, Ix> {
     /// Output is sorted by intervals.
     ///
     /// Panics if `interval` is empty or contains a value that cannot be compared (such as `NAN`).
-    pub fn iter<'a, R: RangeBounds<T>>(&'a self, query: R) -> Intervals<'a, T, (), R, Ix> {
+    pub fn iter<'a, R>(&'a self, query: R) -> Intervals<'a, T, (), R, Ix>
+    where R: RangeBounds<T>,
+    {
         self.inner.intervals(query)
     }
 

@@ -147,7 +147,7 @@ macro_rules! iterator {
     ) => {
         $(#[$outer])*
         pub struct $name<'a, T: PartialOrd + Copy, V, R: RangeBounds<T>, Ix: IndexType> {
-            index: Ix,
+            pub(crate) index: Ix,
             range: R,
             nodes: &'a $( $mut_ )? [Node<T, V, Ix>],
             stack: ActionStack,

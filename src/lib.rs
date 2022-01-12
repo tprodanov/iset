@@ -361,7 +361,9 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
     /// Creates an interval map from a sorted iterator over pairs `(range, value)`. Takes *O(N)*.
     ///
     /// Panics if the intervals are not sorted.
-    pub fn from_sorted<I: Iterator<Item = (Range<T>, V)>>(iter: I) -> Self {
+    pub fn from_sorted<I>(iter: I) -> Self
+    where I: Iterator<Item = (Range<T>, V)>,
+    {
         let nodes: Vec<_> = iter.map(|(range, value)| Node::new(range, value)).collect();
         let n = nodes.len();
         let mut map = Self {
@@ -658,6 +660,33 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
         self.remove_at(self.find_index(&interval))
     }
 
+    /// Removes the first interval (in lexicographical order) that overlaps `query` and for which `predicate` is `true`.
+    /// If an interval was removed, returns `Some((range, value))`, otherwise returns `None`
+    ///
+    /// ```rust
+    /// let mut map = iset::interval_map!{ 0..10 => 'a', 5..15 => 'b', 10..20 => 'a', 15..25 => 'a' };
+    /// assert_eq!(map.remove_if(12..22, |_range, value| *value == 'a'), Some((10..20, 'a')));
+    /// assert!(!map.contains(10..20));
+    /// ```
+    pub fn remove_if<R, P>(&mut self, query: R, mut predicate: P) -> Option<(Range<T>, V)>
+    where R: RangeBounds<T>,
+          P: FnMut(Range<T>, &V) -> bool,
+    {
+        let mut iter = self.iter(query);
+        while let Some((range, value)) = iter.next() {
+            if predicate(range, value) {
+                let index = iter.index;
+                core::mem::drop(iter);
+                // Previous range was consumed by the predicate.
+                let range = self.nodes[index.get()].interval.to_range();
+                // Index should be defined, therefore use unwrap.
+                let value = self.remove_at(index).unwrap();
+                return Some((range, value));
+            }
+        }
+        None
+    }
+
     /// Returns the pair `(x..y, &value)` with the smallest interval `x..y` (in lexicographical order).
     /// Takes *O(log N)*. Returns `None` if the map is empty.
     pub fn smallest(&self) -> Option<(Range<T>, &V)> {
@@ -715,38 +744,50 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
     /// Output is sorted by intervals, but not by values.
     ///
     /// Panics if `interval` is empty or contains a value that cannot be compared (such as `NAN`).
-    pub fn iter<'a, R: RangeBounds<T>>(&'a self, query: R) -> Iter<'a, T, V, R, Ix> {
+    pub fn iter<'a, R>(&'a self, query: R) -> Iter<'a, T, V, R, Ix>
+    where R: RangeBounds<T>,
+    {
         Iter::new(self, query)
     }
 
     /// Iterates over intervals `x..y` that overlap the `query`.
     /// See [iter](#method.iter) for more details.
-    pub fn intervals<'a, R: RangeBounds<T>>(&'a self, query: R) -> Intervals<'a, T, V, R, Ix> {
+    pub fn intervals<'a, R>(&'a self, query: R) -> Intervals<'a, T, V, R, Ix>
+    where R: RangeBounds<T>,
+    {
         Intervals::new(self, query)
     }
 
     /// Iterates over values that overlap the `query`.
     /// See [iter](#method.iter) for more details.
-    pub fn values<'a, R: RangeBounds<T>>(&'a self, query: R) -> Values<'a, T, V, R, Ix> {
+    pub fn values<'a, R>(&'a self, query: R) -> Values<'a, T, V, R, Ix>
+    where R: RangeBounds<T>,
+    {
         Values::new(self, query)
     }
 
     /// Iterator over pairs `(x..y, &mut value)` that overlap the `query`.
     /// See [iter](#method.iter) for more details.
-    pub fn iter_mut<'a, R: RangeBounds<T>>(&'a mut self, query: R) -> IterMut<'a, T, V, R, Ix> {
+    pub fn iter_mut<'a, R>(&'a mut self, query: R) -> IterMut<'a, T, V, R, Ix>
+    where R: RangeBounds<T>,
+    {
         IterMut::new(self, query)
     }
 
     /// Iterator over *mutable* values that overlap the `query`.
     /// See [iter](#method.iter) for more details.
-    pub fn values_mut<'a, R: RangeBounds<T>>(&'a mut self, query: R) -> ValuesMut<'a, T, V, R, Ix> {
+    pub fn values_mut<'a, R>(&'a mut self, query: R) -> ValuesMut<'a, T, V, R, Ix>
+    where R: RangeBounds<T>,
+    {
         ValuesMut::new(self, query)
     }
 
     /// Consumes [IntervalMap](struct.IntervalMap.html) and
     /// iterates over pairs `(x..y, value)` that overlap the `query`.
     /// See [iter](#method.iter) for more details.
-    pub fn into_iter<R: RangeBounds<T>>(self, query: R) -> IntoIter<T, V, R, Ix> {
+    pub fn into_iter<R>(self, query: R) -> IntoIter<T, V, R, Ix>
+    where R: RangeBounds<T>,
+    {
         IntoIter::new(self, query)
     }
 
@@ -823,7 +864,9 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> core::iter::IntoIterator for Interv
 
 /// Construct [IntervalMap](struct.IntervalMap.html) from pairs `(x..y, value)`.
 impl<T: PartialOrd + Copy, V> core::iter::FromIterator<(Range<T>, V)> for IntervalMap<T, V> {
-    fn from_iter<I: IntoIterator<Item = (Range<T>, V)>>(iter: I) -> Self {
+    fn from_iter<I>(iter: I) -> Self
+    where I: IntoIterator<Item = (Range<T>, V)>
+    {
         let mut map = IntervalMap::new();
         for (range, value) in iter {
             map.insert(range, value);

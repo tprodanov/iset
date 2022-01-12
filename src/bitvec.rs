@@ -38,7 +38,7 @@ impl BitVec {
         let fill = if elem { u8::MAX } else { 0 };
         Self {
             len,
-            data: vec![fill; get_byte_len(len)],
+            data: alloc::vec![fill; get_byte_len(len)],
         }
     }
 

@@ -17,10 +17,13 @@ use super::iter::*;
 /// See [IntervalMap](../struct.IntervalMap.html) for more information.
 ///
 /// ```rust
-/// let mut set = iset::IntervalSet::new();
-/// set.insert(0.4..1.5);
-/// set.insert(0.1..0.5);
-/// set.insert(-1.0..0.2);
+/// let mut set = interval_set!{ 0.4..1.5,  0.1..0.5 };
+/// assert!(set.insert(-1.0..0.2));
+/// // false because the interval is already in the set.
+/// assert!(!set.insert(0.1..0.5));
+///
+/// assert!(set.contains(5.0..7.0));
+/// assert!(set.remove(5.0..7.0));
 ///
 /// // Iterate over intervals that overlap `0.2..0.8`.
 /// let a: Vec<_> = set.iter(0.2..0.8).collect();
@@ -31,50 +34,23 @@ use super::iter::*;
 /// assert_eq!(b, &[0.4..1.5]);
 ///
 /// // Will panic:
-/// // set.insert(0.0..core::f32::NAN);
-/// // set.overlap(core::f32::NAN);
+/// // set.insert(0.0..core::f64::NAN);
+/// // set.overlap(core::f64::NAN);
 ///
 /// // It is still possible to use infinity.
-/// let inf = core::f32::INFINITY;
-/// set.insert(0.0..inf);
+/// const INF: f64 = core::f64::INFINITY;
+/// set.insert(0.0..INF);
 /// let c: Vec<_> = set.overlap(0.5).collect();
-/// assert_eq!(c, &[0.0..inf, 0.4..1.5]);
+/// assert_eq!(c, &[0.0..INF, 0.4..1.5]);
 ///
 /// println!("{:?}", set);
 /// // {-1.0..0.2, 0.0..inf, 0.1..0.5, 0.4..1.5}
+/// assert_eq!(set.range().unwrap(), -1.0..INF);
+/// assert_eq!(set.smallest().unwrap(), -1.0..0.2);
+/// assert_eq!(set.largest().unwrap(), 0.4..1.5);
 /// ```
 ///
 /// There are no mutable iterators over [IntervalSet](struct.IntervalSet.html) as keys should be immutable.
-///
-/// You can get [smallest](#method.smallest) and [largest](#method.largest) intervals in *O(log N)*.
-///
-/// It is possible to construct [IntervalSet](struct.IntervalSet.html) using `collect()`:
-/// ```rust
-/// let set: iset::IntervalSet<_> = vec![10..20, 0..20].into_iter().collect();
-/// ```
-///
-/// You can also construct [IntervalSet](struct.IntervalSet.html) using
-/// [interval_set!](../macro.interval_set.html) macro:
-/// ```rust
-/// #[macro_use] extern crate iset;
-///
-/// let set = interval_set!{ 100..210, 50..150 };
-/// let a: Vec<_> = set.iter(..).collect();
-/// assert_eq!(a, &[50..150, 100..210]);
-/// ```
-///
-/// # Index types:
-/// You can specify [index type](../ix/trait.IndexType.html) (for example `u32` and `u64`) used in the inner
-/// representation of `IntervalSet`.
-///
-/// Method [new](#method.new), macro [interval_set!](../macro.interval_set.html) or function
-/// `collect()` create `IntervalSet` with default index type `u32`. If you wish to use another index type you can use
-/// methods [default](#method.default) or [with_capacity](#method.with_capacity). For example:
-/// ```rust
-/// let mut set: iset::IntervalSet<_, u64> = iset::IntervalSet::default();
-/// set.insert(10..20);
-/// ```
-/// See [IndexType](../ix/trait.IndexType.html) for details.
 #[derive(Clone)]
 pub struct IntervalSet<T, Ix = DefaultIx>
 where T: PartialOrd + Copy,
@@ -84,7 +60,8 @@ where T: PartialOrd + Copy,
 }
 
 impl<T: PartialOrd + Copy> IntervalSet<T> {
-    /// Creates an empty [IntervalSet](struct.IntervalSet.html).
+    /// Creates an empty [IntervalSet](struct.IntervalSet.html)
+    /// with default index type [DefaultIx](../ix/type.DefaultIx.html).
     pub fn new() -> Self {
         Self::default()
     }
@@ -163,6 +140,14 @@ impl<T: PartialOrd + Copy, Ix: IndexType> IntervalSet<T, Ix> {
         self.inner.remove(interval).is_some()
     }
 
+    /// Returns a range of interval keys in the set, takes *O(1)*. Returns `None` if the set is empty.
+    /// `out.start` is the minimal start of all intervals in the set,
+    /// and `out.end` is the maximal end of all intervals in the set.
+    #[inline]
+    pub fn range(&self) -> Option<Range<T>> {
+        self.inner.range()
+    }
+
     /// Returns the smallest interval in the set (in lexicographical order).
     /// Takes *O(log N)*. Returns `None` if the set is empty.
     pub fn smallest(&self) -> Option<Range<T>> {
@@ -206,7 +191,9 @@ impl<T: PartialOrd + Copy, Ix: IndexType> IntervalSet<T, Ix> {
 
     /// Consumes [IntervalSet](struct.IntervalSet.html) and iterates over intervals `x..y` that overlap the `query`.
     /// See [iter](#method.iter) for more details.
-    pub fn into_iter<R: RangeBounds<T>>(self, query: R) -> IntoIntervals<T, (), R, Ix> {
+    pub fn into_iter<R>(self, query: R) -> IntoIntervals<T, (), R, Ix>
+    where R: RangeBounds<T>,
+    {
         IntoIntervals::new(self.inner, query)
     }
 

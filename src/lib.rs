@@ -222,7 +222,8 @@ fn check_interval_incl<T: PartialOrd + Copy>(start: T, end: T) {
 /// Map with interval keys (`x..y`).
 ///
 /// Range bounds should implement `PartialOrd` and `Copy`, for example any
-/// integer or float types. However, you cannot use values that cannot be used in comparison (such as `NAN`).
+/// integer or float types. However, you cannot use values that cannot be used in comparison (such as `NAN`),
+/// although infinity is allowed.
 /// There are no restrictions on values.
 ///
 /// # Example.
@@ -305,6 +306,8 @@ fn check_interval_incl<T: PartialOrd + Copy>(start: T, end: T) {
 /// Number of elements in the interval map cannot exceed `IndexType::MAX - 1`: for example a map with `u8` indices
 /// can store up to 255 items.
 ///
+/// Using smaller index types saves memory and may reduce running time.
+///
 /// # Interval map creation.
 ///
 /// An interval map can be created using the following methods:
@@ -332,15 +335,21 @@ fn check_interval_incl<T: PartialOrd + Copy>(start: T, end: T) {
 /// // Creates an interval map from a sorted iterator, takes O(N):
 /// let vec = vec![(0..10, 'b'), (5..15, 'a')];
 /// let map = IntervalMap::<_, _, u32>::from_sorted(vec.into_iter());
+///
+/// // Alternatively, you can use `.collect()` method that creates an interval map
+/// // with the default index size. `Collect` does not require sorted intervals,
+/// // but takes O(N log N).
+/// let vec = vec![(5..15, 'a'), (0..10, 'b')];
+/// let map: IntervalMap<_, _> = vec.into_iter().collect();
 /// ```
 ///
-/// # Implementation, union and merge.
+/// # Implementation, merge and split.
 ///
 /// To allow for fast retrieval of all intervals overlapping a query, we store the range of the subtree in each node
 /// of the tree. Additionally, each node stores indices to the parent and to two children.
 /// As a result, size of the map is approximately `4 * sizeof(T) + sizeof(V) + 3 * sizeof(Ix)`.
 ///
-/// In order to reduce number of heap allocations and access memory consecutively, we store nodes in a vector.
+/// In order to reduce number of heap allocations and access memory consecutively, we store tree nodes in a vector.
 /// This does not impact time complexity of all methods except for *merge* and *split*.
 /// In a heap-allocated tree, merge takes *O(M log (N / M + 1))* where *M* is the size of the smaller tree.
 /// Here, we are required to merge sorted iterators and construct a tree using the sorted iterator as input,
@@ -361,7 +370,8 @@ where T: PartialOrd + Copy,
 }
 
 impl<T: PartialOrd + Copy, V> IntervalMap<T, V> {
-    /// Creates an empty [IntervalMap](struct.IntervalMap.html).
+    /// Creates an empty [IntervalMap](struct.IntervalMap.html)
+    /// with default index type [DefaultIx](ix/type.DefaultIx.html).
     pub fn new() -> Self {
         Self::default()
     }
@@ -1198,7 +1208,7 @@ macro_rules! interval_map {
     };
 }
 
-/// Macros for [IntervalSet](struct.IntervalSet.html) creation.
+/// Macros for [IntervalSet](set/struct.IntervalSet.html) creation.
 /// ```rust
 /// #[macro_use] extern crate iset;
 ///

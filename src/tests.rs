@@ -157,7 +157,11 @@ where T: PartialOrd + Copy + Debug,
         let range = generator();
         writeln!(history, "insert({:?})", range).unwrap();
         naive.insert(range.clone(), i);
-        tree.insert(range.clone(), i);
+        if let Some(value) = tree.insert(range.clone(), i) {
+            let i = naive.nodes.iter().position(|(range2, _value2)| range == *range2).unwrap();
+            assert_eq!(naive.nodes[i].1, value);
+            naive.nodes.swap_remove(i);
+        }
     }
     history
 }

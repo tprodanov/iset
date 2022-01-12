@@ -4,11 +4,11 @@
 //! information about the smallest start and largest end in its subtree.
 //! The tree takes *O(N)* space and allows insertion, removal and search in *O(log N)*.
 //! [IntervalMap](struct.IntervalMap.html) allows to search for all entries overlapping a query (interval or a point,
-//! output would be sorted by keys). Search takes *O(log N + K)* where *K* is the size of the output.
+//! output would be sorted by keys) in *O(log N + K)* where *K* is the size of the output.
 //!
 //! [IntervalSet](struct.IntervalSet.html) is a newtype over [IntervalMap](struct.IntervalMap.html) with empty values.
 //!
-//! Any iterator that goes over an [IntervalMap](struct.IntervalMap.html) or [IntervalSet](struct.IntervalSet.html)
+//! Iterators that goes over an [IntervalMap](struct.IntervalMap.html) or [IntervalSet](struct.IntervalSet.html)
 //! returns intervals/values sorted lexicographically by intervals.
 //!
 //! Optional feature `dot` allows to write interval maps and sets to .dot files
@@ -974,7 +974,7 @@ impl<T: PartialOrd + Copy + Debug, V: Debug, Ix: IndexType> Debug for IntervalMa
             } else {
                 need_comma = true;
             }
-            write!(f, "{:?}: {:?}", interval, value)?;
+            write!(f, "{:?} => {:?}", interval, value)?;
         }
         write!(f, "}}")
     }
@@ -1086,10 +1086,30 @@ where
 /// let map = interval_map!{ 0..10 => "a", 5..15 => "b", -5..20 => "c" };
 /// let a: Vec<_> = map.iter(..).collect();
 /// assert_eq!(a, &[(-5..20, &"c"), (0..10, &"a"), (5..15, &"b")]);
+///
+/// // Creates an interval map with `u8` index type (up to 255 values in the map).
+/// let set = interval_map!{ [u8] 0..10 => "a", 5..15 => "b", -5..20 => "c" };
 /// ```
 #[macro_export]
 macro_rules! interval_map {
+    // Create an empty interval map given the index type.
+    ( [$ix:ty] $(,)? ) => ( $crate::IntervalMap::<_, _, $ix>::default() );
+
+    // Create an empty interval map given the default index type.
     ( () ) => ( $crate::IntervalMap::new() );
+
+    // Create a filled interval map given the index type.
+    ( [$ix:ty] $(,)? $( $k:expr => $v:expr ),* $(,)? ) => {
+        {
+            let mut _temp_map = $crate::IntervalMap::<_, _, $ix>::default();
+            $(
+                _temp_map.insert($k, $v);
+            )*
+            _temp_map
+        }
+    };
+
+    // Create a filled interval map with the default index type.
     ( $( $k:expr => $v:expr ),* $(,)? ) => {
         {
             let mut _temp_map = $crate::IntervalMap::new();
@@ -1108,10 +1128,30 @@ macro_rules! interval_map {
 /// let set = interval_set!{ 100..210, 50..150 };
 /// let a: Vec<_> = set.iter(..).collect();
 /// assert_eq!(a, &[50..150, 100..210]);
+///
+/// // Creates an interval set with `u8` index type (up to 255 values in the set).
+/// let set = interval_set!{ [u8] 100..210, 50..150 };
 /// ```
 #[macro_export]
 macro_rules! interval_set {
+    // Create an empty interval set given the index type.
+    ( [$ix:ty] $(,)? ) => ( $crate::IntervalSet::<_, $ix>::default() );
+
+    // Create an empty interval set given with the default index type.
     ( () ) => ( $crate::IntervalSet::new() );
+
+    // Create a filled interval set given the index type.
+    ( [$ix:ty] $(,)? $( $k:expr ),* $(,)? ) => {
+        {
+            let mut _temp_set = $crate::IntervalSet::<_, $ix>::default();
+            $(
+                _temp_set.insert($k);
+            )*
+            _temp_set
+        }
+    };
+
+    // Create a filled interval set with the default index type.
     ( $( $k:expr ),* $(,)? ) => {
         {
             let mut _temp_set = $crate::IntervalSet::new();

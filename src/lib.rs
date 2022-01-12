@@ -24,7 +24,6 @@
 // TODO:
 // - union, split
 // - remove by value
-// - try to use bitvec to store colors
 
 #![no_std]
 
@@ -32,14 +31,15 @@
 #[macro_use]
 extern crate std;
 extern crate alloc;
-extern crate bit_vec;
 
 pub mod ix;
 pub mod iter;
 pub mod set;
+mod tree_rm;
+mod bitvec;
+
 #[cfg(test)]
 mod tests;
-mod tree_rm;
 
 use alloc::vec::Vec;
 use core::ops::{Range, RangeFull, RangeInclusive, RangeBounds, Bound};
@@ -54,12 +54,12 @@ use {
     serde::ser::{SerializeTuple, SerializeSeq},
     serde::de::{Visitor, SeqAccess},
 };
-use bit_vec::BitVec;
 
 use ix::IndexType;
 pub use ix::DefaultIx;
 use iter::*;
 pub use set::IntervalSet;
+use bitvec::BitVec;
 
 #[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord)]
 struct Interval<T: PartialOrd + Copy> {
@@ -337,7 +337,7 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
         if start + 1 == end {
             if rev_depth == 1 {
                 // Set red.
-                self.colors.set(start, true);
+                self.colors.set1(start);
             }
             return Ix::new(start).unwrap();
         }
@@ -408,27 +408,27 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
 
     #[inline]
     fn is_red(&self, ix: Ix) -> bool {
-        self.colors[ix.get()]
+        self.colors.get(ix.get())
     }
 
     #[inline]
     fn is_black(&self, ix: Ix) -> bool {
-        !self.colors[ix.get()]
+        !self.colors.get(ix.get())
     }
 
     #[inline]
     fn is_black_or_nil(&self, ix: Ix) -> bool {
-        !ix.defined() || !self.colors[ix.get()]
+        !ix.defined() || !self.colors.get(ix.get())
     }
 
     #[inline]
     fn set_red(&mut self, ix: Ix) {
-        self.colors.set(ix.get(), true);
+        self.colors.set1(ix.get());
     }
 
     #[inline]
     fn set_black(&mut self, ix: Ix) {
-        self.colors.set(ix.get(), false);
+        self.colors.set0(ix.get());
     }
 
     fn update_subtree_interval(&mut self, index: Ix) {
@@ -838,7 +838,7 @@ impl<T: PartialOrd + Copy + Display, V: Display, Ix: IndexType> IntervalMap<T, V
     pub fn write_dot<W: Write>(&self, mut writer: W) -> io::Result<()> {
         writeln!(writer, "digraph {{")?;
         for i in 0..self.nodes.len() {
-            self.nodes[i].write_dot(i, self.colors[i], &mut writer)?;
+            self.nodes[i].write_dot(i, self.colors.get(i), &mut writer)?;
         }
         writeln!(writer, "}}")
     }
@@ -850,7 +850,7 @@ impl<T: PartialOrd + Copy + Display, V, Ix: IndexType> IntervalMap<T, V, Ix> {
     pub fn write_dot_without_values<W: Write>(&self, mut writer: W) -> io::Result<()> {
         writeln!(writer, "digraph {{")?;
         for i in 0..self.nodes.len() {
-            self.nodes[i].write_dot_without_values(i, self.colors[i], &mut writer)?;
+            self.nodes[i].write_dot_without_values(i, self.colors.get(i), &mut writer)?;
         }
         writeln!(writer, "}}")
     }

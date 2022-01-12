@@ -21,15 +21,11 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
     /// This function updates all links that lead to the node that was previously the last node.
     fn swap_remove(&mut self, ix: Ix) -> V {
         let i = ix.get();
+        self.colors.swap_remove(i);
         let removed_val = self.nodes.swap_remove(i).value;
         if i >= self.nodes.len() {
-            self.colors.pop();
             // Removed node was the last, no swap was made.
             return removed_val;
-        } else {
-            // There is no swap_remove in `bit-vec`.
-            self.colors.set(i, self.colors[self.nodes.len()]);
-            self.colors.pop();
         }
 
         let ix = Ix::new(i).unwrap();
@@ -166,7 +162,7 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
             else {
                 debug_assert!(sibling_black && !distant_nephew_black);
                 // parent's color -> sibling's color.
-                self.colors.set(sibling_ix.get(), self.colors[parent_ix.get()]);
+                self.colors.set(sibling_ix.get(), self.colors.get(parent_ix.get()));
                 self.set_black(parent_ix);
                 self.set_black(distant_nephew_ix);
                 self.replace_children(parent_ix, sibling_ix);

@@ -19,7 +19,6 @@ opt-level = 3
 incremental = false
 
 [dependencies]
-bit-vec = { version = "0.6", default-features = false }
 serde = { version = "1.0", default-features = false, features = ["derive"], optional = true }
 
 [dev-dependencies]

@@ -4,9 +4,8 @@ use alloc::vec::Vec;
 use core::ops::{Range, RangeBounds, Bound};
 use core::iter::FusedIterator;
 use core::mem;
-use bit_vec::BitVec;
 
-use super::{IntervalMap, Node, IndexType, check_interval, check_interval_incl};
+use super::{IntervalMap, Node, IndexType, check_interval, check_interval_incl, BitVec};
 
 fn check_ordered<T: PartialOrd, R: RangeBounds<T>>(range: &R) {
     match (range.start_bound(), range.end_bound()) {
@@ -68,34 +67,34 @@ impl ActionStack {
 
     #[inline]
     fn can_go_left(&self) -> bool {
-        !self.0[self.0.len() - 2] && !self.0[self.0.len() - 1]
+        !self.0.get_end(1) && !self.0.get_end(0)
     }
 
     #[inline]
     fn go_left(&mut self) {
-        self.0.set(self.0.len() - 1, true);
+        self.0.set1(self.0.len() - 1);
     }
 
     #[inline]
     fn can_match(&self) -> bool {
-        !self.0[self.0.len() - 2]
+        !self.0.get_end(1)
     }
 
     #[inline]
     fn make_match(&mut self) {
-        self.0.set(self.0.len() - 2, true);
-        self.0.set(self.0.len() - 1, false);
+        self.0.set1(self.0.len() - 2);
+        self.0.set0(self.0.len() - 1);
     }
 
     #[inline]
     fn can_go_right(&self) -> bool {
-        !self.0[self.0.len() - 1]
+        !self.0.get_end(0)
     }
 
     #[inline]
     fn go_right(&mut self) {
-        self.0.set(self.0.len() - 2, true);
-        self.0.set(self.0.len() - 1, true);
+        self.0.set1(self.0.len() - 2);
+        self.0.set1(self.0.len() - 1);
     }
 
     #[inline]

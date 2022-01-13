@@ -16,6 +16,9 @@
 //! Additionally, this crate supports serialization/deserialization using an optional feature `serde`.
 //! Without `dot` or `serde` features, this crate supports `no_std` environments.
 
+// TODO: force_insert.
+// TODO: has_overlap, overlap_size.
+
 #![no_std]
 
 #[cfg(feature = "dot")]
@@ -654,12 +657,10 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
         }
     }
 
-    /// Inserts an interval `x..y` and its value into the map. Takes *O(log N)*.
-    ///
-    /// If the map did not contain the interval, returns `None`. Otherwise returns the old value.
-    ///
-    /// Panics if `interval` is empty (`start >= end`) or contains a value that cannot be compared (such as `NAN`).
-    pub fn insert(&mut self, interval: Range<T>, value: V) -> Option<V> {
+    /// Insert pair `(interval, value)`.
+    /// If both `replace` and `interval` was already in the map, replacing the value and returns the old value.
+    /// Otherwise, inserts a new node and returns None.
+    fn insert_inner(&mut self, interval: Range<T>, value: V, replace: bool) -> Option<V> {
         let interval = Interval::new(&interval);
         let mut current = self.root;
         let new_index = Ix::new(self.nodes.len()).unwrap_or_else(|error| panic!("{}", error));
@@ -676,12 +677,13 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
             let node = &mut self.nodes[current.get()];
             let child = match interval.cmp(&node.interval) {
                 Ordering::Less => &mut node.left,
-                Ordering::Greater => &mut node.right,
-                Ordering::Equal => {
+                Ordering::Equal if replace => {
                     let old_val = core::mem::replace(&mut node.value, value);
                     self.fix_intervals_up(current);
                     return Some(old_val);
                 }
+                // If Ordering::Greater or if Equal and there is no replacing.
+                _ => &mut node.right,
             };
             if child.defined() {
                 current = *child;
@@ -696,6 +698,52 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
                 return None;
             }
         }
+    }
+
+    /// Inserts an interval `x..y` and its value into the map. Takes *O(log N)*.
+    ///
+    /// If the map did not contain the interval, returns `None`. Otherwise returns the old value.
+    ///
+    /// Panics if `interval` is empty (`start >= end`) or contains a value that cannot be compared (such as `NAN`).
+    #[inline]
+    pub fn insert(&mut self, interval: Range<T>, value: V) -> Option<V> {
+        self.insert_inner(interval, value, true)
+    }
+
+    /// Inserts an interval `x..y` and its value into the map even if there was an entry with matching interval.
+    /// Takes *O(log N)*.
+    ///
+    /// Panics if `interval` is empty (`start >= end`) or contains a value that cannot be compared (such as `NAN`).
+    ///
+    /// <div class="example-wrap" style="display:inline-block"><pre class="compile_fail" style="white-space:normal;font:inherit;">
+    ///
+    /// **Warning:** After `force_insert`, the map can contain several entries with equal intervals.
+    /// Calling [get](#method.get), [get_mut](#method.get_mut) or [remove](#method.remove)
+    /// will arbitrarily
+    /// return/remove only one of the entries.
+    ///
+    /// Various iterators will output all appropriate intervals, however the order of entries with equal intervals
+    /// will be arbitrary.
+    /// </pre></div>
+    ///
+    /// ```rust
+    /// let mut map = interval_map!{};
+    /// map.force_insert(10..20, 1);
+    /// map.force_insert(15..25, 2);
+    /// map.force_insert(20..30, 3);
+    /// map.force_insert(15..25, 4);
+    ///
+    /// // Returns either 2 or 4.
+    /// assert!(map.get(15..25).unwrap() % 2 == 0);
+    /// // Removes either 15..25 => 2 or 15..25 => 4.
+    /// assert!(map.remove(15..25).unwrap() % 2 == 0);
+    /// println!("{:?}", map);
+    /// // {10..20 => 1, 15..25 => 4, 20..30 => 3} OR
+    /// // {10..20 => 1, 15..25 => 2, 20..30 => 3}
+    /// ```
+    #[inline]
+    pub fn force_insert(&mut self, interval: Range<T>, value: V) {
+        assert!(self.insert_inner(interval, value, false).is_none(), "Force insert should always return None");
     }
 
     fn find_index(&self, interval: &Range<T>) -> Ix {

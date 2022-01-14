@@ -1,7 +1,8 @@
 //! `IntervalSet` implementation.
 
-use core::ops::{Range, RangeInclusive, RangeBounds};
+use core::ops::{Range, RangeInclusive, RangeBounds, RangeFull, AddAssign, Sub};
 use core::fmt::{self, Debug, Formatter};
+use core::iter::{FromIterator, IntoIterator};
 #[cfg(feature = "dot")]
 use core::fmt::Display;
 #[cfg(feature = "dot")]
@@ -53,6 +54,9 @@ use super::iter::*;
 /// ```
 ///
 /// There are no mutable iterators over [IntervalSet](struct.IntervalSet.html) as keys should be immutable.
+///
+/// In contrast to the [IntervalMap](../struct.IntervalMap.html), `IntervalSet` does not have a
+/// [force_insert](../struct.IntervalMap.html#method.force_insert), and completely forbids duplicate intervals.
 #[derive(Clone)]
 pub struct IntervalSet<T, Ix = DefaultIx>
 where T: PartialOrd + Copy,
@@ -87,7 +91,7 @@ impl<T: PartialOrd + Copy, Ix: IndexType> IntervalSet<T, Ix> {
 
     /// Creates an interval set from a sorted iterator over intervals. Takes *O(N)*.
     ///
-    /// Panics if the intervals are not sorted.
+    /// Panics if the intervals are not sorted or if there are equal intervals.
     pub fn from_sorted<I>(iter: I) -> Self
     where I: Iterator<Item = Range<T>>,
     {
@@ -211,8 +215,8 @@ impl<T: PartialOrd + Copy, Ix: IndexType> IntervalSet<T, Ix> {
     }
 }
 
-impl<T: PartialOrd + Copy, Ix: IndexType> core::iter::IntoIterator for IntervalSet<T, Ix> {
-    type IntoIter = IntoIntervals<T, (), core::ops::RangeFull, Ix>;
+impl<T: PartialOrd + Copy, Ix: IndexType> IntoIterator for IntervalSet<T, Ix> {
+    type IntoIter = IntoIntervals<T, (), RangeFull, Ix>;
     type Item = Range<T>;
 
     fn into_iter(self) -> Self::IntoIter {
@@ -221,13 +225,29 @@ impl<T: PartialOrd + Copy, Ix: IndexType> core::iter::IntoIterator for IntervalS
 }
 
 /// Construct [IntervalSet](struct.IntervalSet.html) from ranges `x..y`.
-impl<T: PartialOrd + Copy> core::iter::FromIterator<Range<T>> for IntervalSet<T> {
+impl<T: PartialOrd + Copy> FromIterator<Range<T>> for IntervalSet<T> {
     fn from_iter<I: IntoIterator<Item = Range<T>>>(iter: I) -> Self {
         let mut set = IntervalSet::new();
         for range in iter {
             set.insert(range);
         }
         set
+    }
+}
+
+impl<T, Ix> IntervalSet<T, Ix>
+where T: PartialOrd + Copy + Default + AddAssign + Sub<Output = T>,
+      Ix: IndexType,
+{
+    /// Calculates the total length of the `query` that is covered by intervals in the map.
+    /// Takes *O(1)* memory and *O(log N + K)* time where *K* is the number of intervals that overlap `query`.
+    ///
+    /// See [IntervalMap::covered_len](../struct.IntervalMap.html#method.covered_len) for more details.
+    #[inline]
+    pub fn covered_len<R>(&self, query: R) -> T
+    where R: RangeBounds<T>
+    {
+        self.inner.covered_len(query)
     }
 }
 

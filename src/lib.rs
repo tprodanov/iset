@@ -1,5 +1,5 @@
 //! This crates implements map and set with interval keys (ranges `x..y`).
-
+//!
 //! [IntervalMap](struct.IntervalMap.html) is implemented using red-black binary tree, where each node contains
 //! information about the smallest start and largest end in its subtree.
 //! The tree takes *O(N)* space and allows insertion, removal and search in *O(log N)*.
@@ -15,9 +15,10 @@
 //! (see [IntervalMap::write_dot](struct.IntervalMap.html#method.write_dot)).
 //! Additionally, this crate supports serialization/deserialization using an optional feature `serde`.
 //! Without `dot` or `serde` features, this crate supports `no_std` environments.
+//!
+//! See [IntervalMap](struct.IntervalMap.html) for more extensive documentation and examples.
 
-// TODO: force_insert.
-// TODO: has_overlap, overlap_size.
+// TODO: has_overlap, overlap_len, overlap_count.
 
 #![no_std]
 
@@ -36,8 +37,9 @@ mod bitvec;
 mod tests;
 
 use alloc::vec::Vec;
-use core::ops::{Range, RangeFull, RangeInclusive, RangeBounds, Bound};
+use core::ops::{Range, RangeFull, RangeInclusive, RangeBounds, Bound, AddAssign, Sub, Index};
 use core::fmt::{self, Debug, Display, Formatter};
+use core::iter::{FromIterator, IntoIterator};
 use core::cmp::Ordering;
 #[cfg(feature = "dot")]
 use std::io::{self, Write};
@@ -260,10 +262,10 @@ fn check_interval_incl<T: PartialOrd + Copy>(start: T, end: T) {
 /// # Insertion, search and removal.
 ///
 /// All three operations take *O(log N)*.
-/// Although binary tree allows for duplicate keys, here we require all keys to be unique.
-/// Similarly to `HashMap` or `BTreeMap`, [insert](#method.insert) returns `Some(old_value)` if the interval was already
-/// present in the map. Note, that the key is not updated even if the value is replaced. This matters for types
-/// that can be `==` without being identical.
+/// By default, this crate does not allow duplicate keys, [insert](#method.insert) replaces and returns the old
+/// value if the interval was already present in the map.
+/// Note, that the key is not updated even if the value is replaced.
+/// This matters for types that can be `==` without being identical.
 ///
 /// Search operations [contains](#method.contains), [get](#method.get) and [get_mut](#method.get_mut) is usually faster
 /// than insertion or removal, as the tree does not need to be rebalanced.
@@ -271,6 +273,10 @@ fn check_interval_incl<T: PartialOrd + Copy>(start: T, end: T) {
 /// You can remove nodes from the tree using [remove](#method.remove) method given the interval key.
 /// Currently, it is not feasible to have a method that removes multiple nodes at once
 /// (for example based on a predicate).
+///
+/// It is possible to store entries with equal intervals by calling [force_insert](#method.force_insert).
+/// This method should be used with care, as methods [get](#method.get), [get_mut](#method.get_mut) and
+/// [remove](#method.remove) only return/remove a single entry (see [force_insert](#method.force_insert) for more details).
 ///
 /// Additionally, it is possible to get or remove the entry with the smallest/largest interval in the map
 /// (in lexicographical order), see [smallest](#method.smallest), [largest](#method.largest), etc.
@@ -446,7 +452,7 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
 
     /// Creates an interval map from a sorted iterator over pairs `(range, value)`. Takes *O(N)*.
     ///
-    /// Panics if the intervals are not sorted.
+    /// Panics if the intervals are not sorted or if there are equal intervals.
     pub fn from_sorted<I>(iter: I) -> Self
     where I: Iterator<Item = (Range<T>, V)>,
     {
@@ -458,7 +464,7 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
             root: Ix::MAX,
         };
         for i in 1..n {
-            assert!(map.nodes[i - 1].interval <= map.nodes[i].interval,
+            assert!(map.nodes[i - 1].interval < map.nodes[i].interval,
                 "Cannot construct interval map from sorted nodes: intervals at positions {} and {} are unordered!",
                 i, i + 1);
         }
@@ -727,7 +733,7 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
     /// </pre></div>
     ///
     /// ```rust
-    /// let mut map = interval_map!{};
+    /// let mut map = iset::interval_map!{};
     /// map.force_insert(10..20, 1);
     /// map.force_insert(15..25, 2);
     /// map.force_insert(20..30, 3);
@@ -1045,7 +1051,7 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
     }
 }
 
-impl<T: PartialOrd + Copy, V, Ix: IndexType> core::iter::IntoIterator for IntervalMap<T, V, Ix> {
+impl<T: PartialOrd + Copy, V, Ix: IndexType> IntoIterator for IntervalMap<T, V, Ix> {
     type IntoIter = IntoIter<T, V, RangeFull, Ix>;
     type Item = (Range<T>, V);
 
@@ -1055,23 +1061,82 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> core::iter::IntoIterator for Interv
 }
 
 /// Construct [IntervalMap](struct.IntervalMap.html) from pairs `(x..y, value)`.
-impl<T: PartialOrd + Copy, V> core::iter::FromIterator<(Range<T>, V)> for IntervalMap<T, V> {
+///
+/// Panics, if the iterator contains duplicate intervals.
+impl<T: PartialOrd + Copy, V> FromIterator<(Range<T>, V)> for IntervalMap<T, V> {
     fn from_iter<I>(iter: I) -> Self
     where I: IntoIterator<Item = (Range<T>, V)>
     {
         let mut map = IntervalMap::new();
         for (range, value) in iter {
-            map.insert(range, value);
+            assert!(map.insert(range, value).is_none(), "Cannot collect IntervalMap with duplicate intervals!");
         }
         map
     }
 }
 
-impl<T: PartialOrd + Copy, V, Ix: IndexType> core::ops::Index<Range<T>> for IntervalMap<T, V, Ix> {
+impl<T: PartialOrd + Copy, V, Ix: IndexType> Index<Range<T>> for IntervalMap<T, V, Ix> {
     type Output = V;
 
     fn index(&self, range: Range<T>) -> &Self::Output {
         self.get(range).expect("No entry found for range")
+    }
+}
+
+impl<T, V, Ix> IntervalMap<T, V, Ix>
+where T: PartialOrd + Copy + Default + AddAssign + Sub<Output = T>,
+      Ix: IndexType,
+{
+    /// Calculates the total length of the `query` that is covered by intervals in the map.
+    /// Takes *O(1)* memory and *O(log N + K)* time where *K* is the number of intervals that overlap `query`.
+    ///
+    /// This method makes two assumptions:
+    /// - `T::default()` is equivalent to 0, which is true for numeric types,
+    /// - Single-point intersections are irrelevant, for example intersection between *[0, 1]* and *[1, 2]* is zero,
+    /// This also means that the size of the interval *(0, 1)* will be 1 even for integer types.
+    pub fn covered_len<R>(&self, query: R) -> T
+    where R: RangeBounds<T>,
+    {
+        let mut res = T::default();
+        let start_bound = query.start_bound().cloned();
+        let end_bound = query.end_bound().cloned();
+
+        let mut started = false;
+        let mut curr_start = res; // T::default(), will not be used.
+        let mut curr_end = res;
+        for interval in self.intervals(query) {
+            let start = match start_bound {
+                Bound::Unbounded => interval.start,
+                Bound::Included(a) | Bound::Excluded(a) if a >= interval.start
+                  => a,
+                _ => interval.start,
+            };
+            let end = match end_bound {
+                Bound::Unbounded => interval.end,
+                Bound::Included(b) | Bound::Excluded(b) if b <= interval.end
+                  => b,
+                _ => interval.end,
+            };
+            debug_assert!(end >= start);
+
+            if started {
+                if start > curr_end {
+                    res += curr_end - curr_start;
+                    curr_start = start;
+                    curr_end = end;
+                } else if end > curr_end {
+                    curr_end = end;
+                }
+            } else {
+                curr_start = start;
+                curr_end = end;
+                started = true;
+            }
+        }
+        if started {
+            res += curr_end - curr_start;
+        }
+        res
     }
 }
 
@@ -1225,6 +1290,8 @@ where
 /// // Creates an interval map with `u8` index type (up to 255 values in the map).
 /// let set = interval_map!{ [u8] 0..10 => "a", 5..15 => "b", -5..20 => "c" };
 /// ```
+///
+/// Panics if there are duplicate intervals.
 #[macro_export]
 macro_rules! interval_map {
     // Create an empty interval map given the index type.
@@ -1238,7 +1305,7 @@ macro_rules! interval_map {
         {
             let mut _temp_map = $crate::IntervalMap::<_, _, $ix>::default();
             $(
-                _temp_map.insert($k, $v);
+                assert!(_temp_map.insert($k, $v).is_none(), "Cannot use interval_map!{ ... } with duplicate intervals");
             )*
             _temp_map
         }
@@ -1249,7 +1316,7 @@ macro_rules! interval_map {
         {
             let mut _temp_map = $crate::IntervalMap::new();
             $(
-                _temp_map.insert($k, $v);
+                assert!(_temp_map.insert($k, $v).is_none(), "Cannot use interval_map!{ ... } with duplicate intervals");
             )*
             _temp_map
         }

@@ -5,17 +5,7 @@ use core::ops::{Range, RangeBounds, Bound};
 use core::iter::FusedIterator;
 use core::mem;
 
-use super::{IntervalMap, Node, IndexType, check_interval, check_interval_incl, BitVec};
-
-fn check_ordered<T: PartialOrd, R: RangeBounds<T>>(range: &R) {
-    match (range.start_bound(), range.end_bound()) {
-        (_, Bound::Unbounded) | (Bound::Unbounded, _) => {},
-        (Bound::Included(a), Bound::Included(b)) => check_interval_incl(a, b),
-        (Bound::Included(a), Bound::Excluded(b))
-        | (Bound::Excluded(a), Bound::Included(b))
-        | (Bound::Excluded(a), Bound::Excluded(b)) => check_interval(a, b),
-    }
-}
+use super::{IntervalMap, Node, IndexType, check_ordered, BitVec};
 
 fn should_go_left<T, V, Ix>(nodes: &[Node<T, V, Ix>], index: Ix, start_bound: Bound<&T>) -> bool
 where T: PartialOrd + Copy,
@@ -26,7 +16,7 @@ where T: PartialOrd + Copy,
     }
     let left_end = nodes[nodes[index.get()].left.get()].subtree_interval.end;
     match start_bound {
-        Bound::Included(value) | Bound::Excluded(value) => left_end >= *value,
+        Bound::Included(&value) | Bound::Excluded(&value) => left_end >= value,
         Bound::Unbounded => true,
     }
 }
@@ -40,8 +30,8 @@ where T: PartialOrd + Copy,
     }
     let right_start = nodes[nodes[index.get()].right.get()].subtree_interval.start;
     match end_bound {
-        Bound::Included(value) => right_start <= *value,
-        Bound::Excluded(value) => right_start < *value,
+        Bound::Included(&value) => right_start <= value,
+        Bound::Excluded(&value) => right_start < value,
         Bound::Unbounded => true,
     }
 }

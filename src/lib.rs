@@ -86,13 +86,13 @@ impl<T: PartialOrd + Copy> Interval<T> {
     fn intersects_range<R: RangeBounds<T>>(&self, range: &R) -> bool {
         // Each match returns bool
         (match range.end_bound() {
-            Bound::Included(value) => self.start <= *value,
-            Bound::Excluded(value) => self.start < *value,
+            Bound::Included(&value) => self.start <= value,
+            Bound::Excluded(&value) => self.start < value,
             Bound::Unbounded => true,
         })
             &&
         (match range.start_bound() {
-            Bound::Included(value) | Bound::Excluded(value) => self.end > *value,
+            Bound::Included(&value) | Bound::Excluded(&value) => self.end > value,
             Bound::Unbounded => true,
         })
     }
@@ -221,6 +221,16 @@ fn check_interval_incl<T: PartialOrd + Copy>(start: T, end: T) {
         panic!("Interval is empty (`start > end`)");
     } else {
         panic!("Interval cannot be ordered (not `start <= end` and not `end < start`)");
+    }
+}
+
+fn check_ordered<T: PartialOrd, R: RangeBounds<T>>(range: &R) {
+    match (range.start_bound(), range.end_bound()) {
+        (_, Bound::Unbounded) | (Bound::Unbounded, _) => {},
+        (Bound::Included(a), Bound::Included(b)) => check_interval_incl(a, b),
+        (Bound::Included(a), Bound::Excluded(b))
+        | (Bound::Excluded(a), Bound::Included(b))
+        | (Bound::Excluded(a), Bound::Excluded(b)) => check_interval(a, b),
     }
 }
 
@@ -902,6 +912,80 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
             let range = self.nodes[index.get()].interval.to_range();
             Some((range, self.remove_at(index).unwrap()))
         }
+    }
+
+    pub fn has_overlap<R>(&self, query: R) -> bool
+    where R: RangeBounds<T>,
+    {
+        check_ordered(&query);
+        let mut index = self.root;
+        while index.defined() {
+            let node = &self.nodes[index.get()];
+            let subtree_start = node.subtree_interval.start;
+            let subtree_end = node.subtree_interval.end;
+            let node_start = node.interval.start;
+
+            // Query start is less than the subtree interval start,
+            // -//- less than the interval start of the current node.
+            let (q_start_lt_start, q_start_lt_node_start) = match query.start_bound() {
+                Bound::Unbounded => (true, true),
+                Bound::Included(&q_start) => {
+                    if q_start < subtree_start {
+                        (true, true)
+                    } else if q_start == subtree_start {
+                        // There is definitely an interval that starts at the same position as the query.
+                        return true;
+                    } else if q_start < subtree_end {
+                        (false, q_start < node_start)
+                    } else {
+                        // The whole subtree lies to the left of the query.
+                        return false;
+                    }
+                },
+                Bound::Excluded(&q_start) => {
+                    if q_start <= subtree_start {
+                        (true, true)
+                    } else if q_start < subtree_end {
+                        (false, q_start < node_start)
+                    } else {
+                        // The whole subtree lies to the left of the query.
+                        return false;
+                    }
+                },
+            };
+
+            // Query end is greater than the subtree interval end.
+            let q_end_gt_end = match query.end_bound() {
+                Bound::Unbounded => true,
+                Bound::Included(&q_end) => {
+                    if q_end < subtree_start {
+                        return false;
+                    } else if q_end == subtree_start {
+                        // There is definitely an interval that starts at the same position as the query ends.
+                        return true;
+                    } else {
+                        q_end > subtree_end
+                    }
+                },
+                Bound::Excluded(&q_end) => {
+                    if q_end <= subtree_start {
+                        return false;
+                    } else {
+                        q_end > subtree_end
+                    }
+                },
+            };
+            // The only case that we need to check, is if the query is completely inside the subtree interval.
+            if q_start_lt_start || q_end_gt_end {
+                return true;
+            }
+
+            if node.interval.intersects_range(&query) {
+                return true;
+            }
+            index = if q_start_lt_node_start { node.left } else { node.right };
+        }
+        false
     }
 
     /// Iterates over pairs `(x..y, &value)` that overlap the `query`.

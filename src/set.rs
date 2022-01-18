@@ -178,6 +178,12 @@ impl<T: PartialOrd + Copy, Ix: IndexType> IntervalSet<T, Ix> {
         self.inner.remove_largest().map(|(interval, _)| interval)
     }
 
+    #[inline]
+    pub fn has_overlap<R>(&self, query: R) -> bool
+    where R: RangeBounds<T>, {
+        self.inner.has_overlap(query)
+    }
+
     /// Iterates over intervals `x..y` that overlap the `query`.
     /// Takes *O(log N + K)* where *K* is the size of the output.
     /// Output is sorted by intervals.

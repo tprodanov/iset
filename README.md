@@ -7,7 +7,6 @@ in *O(log N + K)* where *K* is the size of the output.
 
 `IntervalSet` is a newtype over `IntervalMap` with empty values.
 
-
 ## Usage
 
 The following code constructs a small interval map and search for intervals/values overlapping various queries.

@@ -178,6 +178,8 @@ impl<T: PartialOrd + Copy, Ix: IndexType> IntervalSet<T, Ix> {
         self.inner.remove_largest().map(|(interval, _)| interval)
     }
 
+    /// Checks, if the query overlaps any intervals in the interval set.
+    /// Equivalent to `set.iter(query).next().is_some()`, but much faster.
     #[inline]
     pub fn has_overlap<R>(&self, query: R) -> bool
     where R: RangeBounds<T>, {
@@ -246,7 +248,7 @@ where T: PartialOrd + Copy + Default + AddAssign + Sub<Output = T>,
       Ix: IndexType,
 {
     /// Calculates the total length of the `query` that is covered by intervals in the map.
-    /// Takes *O(1)* memory and *O(log N + K)* time where *K* is the number of intervals that overlap `query`.
+    /// Takes *O(log N + K)* where *K* is the number of intervals that overlap `query`.
     ///
     /// See [IntervalMap::covered_len](../struct.IntervalMap.html#method.covered_len) for more details.
     #[inline]

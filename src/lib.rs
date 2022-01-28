@@ -18,8 +18,6 @@
 //!
 //! See [IntervalMap](struct.IntervalMap.html) for more extensive documentation and examples.
 
-// TODO: has_overlap, overlap_len, overlap_count.
-
 #![no_std]
 
 #[cfg(feature = "dot")]
@@ -292,7 +290,10 @@ fn check_ordered<T: PartialOrd, R: RangeBounds<T>>(range: &R) {
 /// (in lexicographical order), see [smallest](#method.smallest), [largest](#method.largest), etc.
 /// These methods take *O(log N)* as well.
 ///
-/// Method [range](#method.range) allows to extract the range that covers all intervals in *O(1)*.
+/// Method [range](#method.range) allows to extract interval range `(min_start, max_end)` in *O(1)*.
+/// Method [covered_len](#method.covered_len) is designed to calculate the total length of a query that is covered
+/// by the intervals in the map. Method [has_overlap](#method.has_overlap) allows to quickly find if the query overlaps
+/// any intervals in the map.
 ///
 /// # Iteration.
 ///
@@ -914,42 +915,53 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
         }
     }
 
+    /// Checks, if the query overlaps any intervals in the interval map.
+    /// Equivalent to `map.iter(query).next().is_some()`, but much faster.
+    ///
+    /// ```rust
+    /// let map = iset::interval_map!{ 5..8 => 'a', 10..15 => 'b' };
+    /// assert!(!map.has_overlap(8..10));
+    /// assert!(map.has_overlap(8..=10));
+    /// ```
     pub fn has_overlap<R>(&self, query: R) -> bool
     where R: RangeBounds<T>,
     {
         check_ordered(&query);
-        let mut index = self.root;
-        while index.defined() {
+        if !self.root.defined() {
+            return false;
+        }
+
+        let mut queue = Vec::new();
+        queue.push(self.root);
+        while let Some(index) = queue.pop() {
             let node = &self.nodes[index.get()];
             let subtree_start = node.subtree_interval.start;
             let subtree_end = node.subtree_interval.end;
-            let node_start = node.interval.start;
 
             // Query start is less than the subtree interval start,
-            // -//- less than the interval start of the current node.
-            let (q_start_lt_start, q_start_lt_node_start) = match query.start_bound() {
-                Bound::Unbounded => (true, true),
+            let q_start_lt_start = match query.start_bound() {
+                Bound::Unbounded => true,
                 Bound::Included(&q_start) => {
                     if q_start < subtree_start {
-                        (true, true)
+                        true
                     } else if q_start == subtree_start {
                         // There is definitely an interval that starts at the same position as the query.
                         return true;
                     } else if q_start < subtree_end {
-                        (false, q_start < node_start)
+                        false
                     } else {
                         // The whole subtree lies to the left of the query.
-                        return false;
+                        continue;
                     }
                 },
                 Bound::Excluded(&q_start) => {
                     if q_start <= subtree_start {
-                        (true, true)
+                        true
                     } else if q_start < subtree_end {
-                        (false, q_start < node_start)
+                        false
                     } else {
                         // The whole subtree lies to the left of the query.
-                        return false;
+                        continue;
                     }
                 },
             };
@@ -959,7 +971,7 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
                 Bound::Unbounded => true,
                 Bound::Included(&q_end) => {
                     if q_end < subtree_start {
-                        return false;
+                        continue;
                     } else if q_end == subtree_start {
                         // There is definitely an interval that starts at the same position as the query ends.
                         return true;
@@ -969,21 +981,21 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
                 },
                 Bound::Excluded(&q_end) => {
                     if q_end <= subtree_start {
-                        return false;
+                        continue;
                     } else {
                         q_end > subtree_end
                     }
                 },
             };
-            // The only case that we need to check, is if the query is completely inside the subtree interval.
-            if q_start_lt_start || q_end_gt_end {
+            if q_start_lt_start || q_end_gt_end || node.interval.intersects_range(&query) {
                 return true;
             }
-
-            if node.interval.intersects_range(&query) {
-                return true;
+            if node.left.defined() {
+                queue.push(node.left);
             }
-            index = if q_start_lt_node_start { node.left } else { node.right };
+            if node.right.defined() {
+                queue.push(node.right);
+            }
         }
         false
     }
@@ -1172,12 +1184,18 @@ where T: PartialOrd + Copy + Default + AddAssign + Sub<Output = T>,
       Ix: IndexType,
 {
     /// Calculates the total length of the `query` that is covered by intervals in the map.
-    /// Takes *O(1)* memory and *O(log N + K)* time where *K* is the number of intervals that overlap `query`.
+    /// Takes *O(log N + K)* where *K* is the number of intervals that overlap `query`.
     ///
     /// This method makes two assumptions:
     /// - `T::default()` is equivalent to 0, which is true for numeric types,
     /// - Single-point intersections are irrelevant, for example intersection between *[0, 1]* and *[1, 2]* is zero,
     /// This also means that the size of the interval *(0, 1)* will be 1 even for integer types.
+    ///
+    /// ```rust
+    /// let map = iset::interval_map!{ 0..10 => 'a', 4..8 => 'b', 12..15 => 'c' };
+    /// assert_eq!(map.covered_len(2..14), 10);
+    /// assert_eq!(map.covered_len(..), 13);
+    /// ```
     pub fn covered_len<R>(&self, query: R) -> T
     where R: RangeBounds<T>,
     {
@@ -1190,15 +1208,11 @@ where T: PartialOrd + Copy + Default + AddAssign + Sub<Output = T>,
         let mut curr_end = res;
         for interval in self.intervals(query) {
             let start = match start_bound {
-                Bound::Unbounded => interval.start,
-                Bound::Included(a) | Bound::Excluded(a) if a >= interval.start
-                  => a,
+                Bound::Included(a) | Bound::Excluded(a) if a >= interval.start => a,
                 _ => interval.start,
             };
             let end = match end_bound {
-                Bound::Unbounded => interval.end,
-                Bound::Included(b) | Bound::Excluded(b) if b <= interval.end
-                  => b,
+                Bound::Included(b) | Bound::Excluded(b) if b <= interval.end => b,
                 _ => interval.end,
             };
             debug_assert!(end >= start);

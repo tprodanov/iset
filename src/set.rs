@@ -1,18 +1,18 @@
 //! `IntervalSet` implementation.
 
-use core::ops::{Range, RangeInclusive, RangeBounds, RangeFull, AddAssign, Sub};
-use core::fmt::{self, Debug, Formatter};
-use core::iter::{FromIterator, IntoIterator};
 #[cfg(feature = "dot")]
 use core::fmt::Display;
+use core::fmt::{self, Debug, Formatter};
+use core::iter::{FromIterator, IntoIterator};
+use core::ops::{AddAssign, Range, RangeBounds, RangeFull, RangeInclusive, Sub};
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 #[cfg(feature = "dot")]
 use std::io::{self, Write};
-#[cfg(feature = "serde")]
-use serde::{Serialize, Serializer, Deserialize, Deserializer};
 
-use super::IntervalMap;
-use super::ix::{IndexType, DefaultIx};
 use super::iter::*;
+use super::ix::{DefaultIx, IndexType};
+use super::IntervalMap;
 
 /// Set with interval keys (ranges `x..y`). Newtype over `IntervalMap<T, ()>`.
 /// See [IntervalMap](../struct.IntervalMap.html) for more information.
@@ -59,8 +59,9 @@ use super::iter::*;
 /// [force_insert](../struct.IntervalMap.html#method.force_insert), and completely forbids duplicate intervals.
 #[derive(Clone)]
 pub struct IntervalSet<T, Ix = DefaultIx>
-where T: PartialOrd + Copy,
-      Ix: IndexType,
+where
+    T: PartialOrd + Copy,
+    Ix: IndexType,
 {
     inner: IntervalMap<T, (), Ix>,
 }
@@ -93,7 +94,8 @@ impl<T: PartialOrd + Copy, Ix: IndexType> IntervalSet<T, Ix> {
     ///
     /// Panics if the intervals are not sorted or if there are equal intervals.
     pub fn from_sorted<I>(iter: I) -> Self
-    where I: Iterator<Item = Range<T>>,
+    where
+        I: Iterator<Item = Range<T>>,
     {
         Self {
             inner: IntervalMap::from_sorted(iter.map(|range| (range, ()))),
@@ -182,7 +184,9 @@ impl<T: PartialOrd + Copy, Ix: IndexType> IntervalSet<T, Ix> {
     /// Equivalent to `set.iter(query).next().is_some()`, but much faster.
     #[inline]
     pub fn has_overlap<R>(&self, query: R) -> bool
-    where R: RangeBounds<T>, {
+    where
+        R: RangeBounds<T>,
+    {
         self.inner.has_overlap(query)
     }
 
@@ -192,7 +196,8 @@ impl<T: PartialOrd + Copy, Ix: IndexType> IntervalSet<T, Ix> {
     ///
     /// Panics if `interval` is empty or contains a value that cannot be compared (such as `NAN`).
     pub fn iter<'a, R>(&'a self, query: R) -> Intervals<'a, T, (), R, Ix>
-    where R: RangeBounds<T>,
+    where
+        R: RangeBounds<T>,
     {
         self.inner.intervals(query)
     }
@@ -206,7 +211,8 @@ impl<T: PartialOrd + Copy, Ix: IndexType> IntervalSet<T, Ix> {
     /// Consumes [IntervalSet](struct.IntervalSet.html) and iterates over intervals `x..y` that overlap the `query`.
     /// See [iter](#method.iter) for more details.
     pub fn into_iter<R>(self, query: R) -> IntoIntervals<T, (), R, Ix>
-    where R: RangeBounds<T>,
+    where
+        R: RangeBounds<T>,
     {
         IntoIntervals::new(self.inner, query)
     }
@@ -244,8 +250,9 @@ impl<T: PartialOrd + Copy> FromIterator<Range<T>> for IntervalSet<T> {
 }
 
 impl<T, Ix> IntervalSet<T, Ix>
-where T: PartialOrd + Copy + Default + AddAssign + Sub<Output = T>,
-      Ix: IndexType,
+where
+    T: PartialOrd + Copy + Default + AddAssign + Sub<Output = T>,
+    Ix: IndexType,
 {
     /// Calculates the total length of the `query` that is covered by intervals in the map.
     /// Takes *O(log N + K)* where *K* is the number of intervals that overlap `query`.
@@ -253,7 +260,8 @@ where T: PartialOrd + Copy + Default + AddAssign + Sub<Output = T>,
     /// See [IntervalMap::covered_len](../struct.IntervalMap.html#method.covered_len) for more details.
     #[inline]
     pub fn covered_len<R>(&self, query: R) -> T
-    where R: RangeBounds<T>
+    where
+        R: RangeBounds<T>,
     {
         self.inner.covered_len(query)
     }

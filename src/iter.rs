@@ -1,15 +1,16 @@
 //! Module with various iterators over `IntervalMap` and `IntervalSet`.
 
 use alloc::vec::Vec;
-use core::ops::{Range, RangeBounds, Bound};
 use core::iter::FusedIterator;
 use core::mem;
+use core::ops::{Bound, Range, RangeBounds};
 
-use super::{IntervalMap, Node, IndexType, check_ordered, BitVec};
+use super::{check_ordered, BitVec, IndexType, IntervalMap, Node};
 
 fn should_go_left<T, V, Ix>(nodes: &[Node<T, V, Ix>], index: Ix, start_bound: Bound<&T>) -> bool
-where T: PartialOrd + Copy,
-      Ix: IndexType,
+where
+    T: PartialOrd + Copy,
+    Ix: IndexType,
 {
     if !nodes[index.get()].left.defined() {
         return false;
@@ -22,8 +23,9 @@ where T: PartialOrd + Copy,
 }
 
 fn should_go_right<T, V, Ix>(nodes: &[Node<T, V, Ix>], index: Ix, end_bound: Bound<&T>) -> bool
-where T: PartialOrd + Copy,
-      Ix: IndexType,
+where
+    T: PartialOrd + Copy,
+    Ix: IndexType,
 {
     if !nodes[index.get()].right.defined() {
         return false;
@@ -45,7 +47,7 @@ impl ActionStack {
     }
 
     #[inline]
-    fn push(& mut self) {
+    fn push(&mut self) {
         self.0.push(false);
         self.0.push(false);
     }
@@ -94,10 +96,16 @@ impl ActionStack {
     }
 }
 
-fn move_to_next<T, V, R, Ix>(nodes: &[Node<T, V, Ix>], mut index: Ix, range: &R, stack: &mut ActionStack) -> Ix
-where T: PartialOrd + Copy,
-      R: RangeBounds<T>,
-      Ix: IndexType,
+fn move_to_next<T, V, R, Ix>(
+    nodes: &[Node<T, V, Ix>],
+    mut index: Ix,
+    range: &R,
+    stack: &mut ActionStack,
+) -> Ix
+where
+    T: PartialOrd + Copy,
+    R: RangeBounds<T>,
+    Ix: IndexType,
 {
     while index.defined() {
         if stack.can_go_left() {

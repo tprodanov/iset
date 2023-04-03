@@ -1,4 +1,3 @@
-
 use super::*;
 
 impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
@@ -103,10 +102,18 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
             let parent = &self.nodes[parent_ix.get()];
             let parent_black = self.is_black(parent_ix);
             let node_is_left = parent.left == ix;
-            let sibling_ix = if node_is_left { parent.right } else { parent.left };
+            let sibling_ix = if node_is_left {
+                parent.right
+            } else {
+                parent.left
+            };
             let (close_nephew_ix, distant_nephew_ix) = if sibling_ix.defined() {
                 let sibling = &self.nodes[sibling_ix.get()];
-                if node_is_left { (sibling.left, sibling.right) } else { (sibling.right, sibling.left) }
+                if node_is_left {
+                    (sibling.left, sibling.right)
+                } else {
+                    (sibling.right, sibling.left)
+                }
             } else {
                 (Ix::MAX, Ix::MAX)
             };
@@ -155,7 +162,8 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
             else {
                 debug_assert!(sibling_black && !distant_nephew_black);
                 // parent's color -> sibling's color.
-                self.colors.set(sibling_ix.get(), self.colors.get(parent_ix.get()));
+                self.colors
+                    .set(sibling_ix.get(), self.colors.get(parent_ix.get()));
                 self.set_black(parent_ix);
                 self.set_black(distant_nephew_ix);
                 self.replace_children(parent_ix, sibling_ix);
@@ -200,7 +208,9 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
             }
         };
         if rm_ix != ix {
-            unsafe { self.swap_nodes(ix, rm_ix); }
+            unsafe {
+                self.swap_nodes(ix, rm_ix);
+            }
         }
 
         let rm_node = &self.nodes[rm_ix.get()];
@@ -209,7 +219,9 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
 
         if child_ix.defined() {
             // Removed node has a child, replace the node with the child and remove the child.
-            unsafe { self.swap_nodes(rm_ix, child_ix); }
+            unsafe {
+                self.swap_nodes(rm_ix, child_ix);
+            }
             self.remove_child(rm_ix, child_ix);
             self.fix_intervals_up(rm_ix);
             Some(self.swap_remove(child_ix))

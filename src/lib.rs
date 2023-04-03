@@ -818,6 +818,89 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
         self.remove_at(self.find_index(&interval))
     }
 
+    /// Call f() on all indices of nodes whose interval is equal to `interval`.  If f() returns
+    /// Some(x), stop traversal and return Some(x).
+    fn find_equal_indices<Ft>(
+        &self,
+        index: Ix,
+        interval: &Interval<T>,
+        f: &mut impl FnMut(Ix) -> Option<Ft>,
+    ) -> Option<Ft> {
+        if !index.defined() {
+            return None;
+        }
+        let node = &self.nodes[index.get()];
+        match interval.cmp(&node.interval) {
+            Ordering::Less => self.find_equal_indices(node.left, interval, f),
+            Ordering::Greater => self.find_equal_indices(node.right, interval, f),
+            Ordering::Equal => match f(index) {
+                Some(result) => Some(result),
+                None => {
+                    if let Some(result) = self.find_equal_indices(node.left, interval, f) {
+                        return Some(result);
+                    }
+                    self.find_equal_indices(node.right, interval, f)
+                }
+            },
+        }
+    }
+
+    /// Removes zero or one entry, returning its value.  The removed entry is associated with
+    /// `interval` (exact match is required) and for which `select` returns `true`.  After
+    /// `select` returns `true`, it is not invoked again.
+    ///
+    /// Takes *O(M + log N)*, where M is the number of times that `select` returns `false`, which
+    /// is at most the number of entries with the same interval.
+    ///
+    /// Panics if `interval` is empty (`start >= end`) or contains a value that cannot be
+    /// compared (such as `NAN`).
+    ///
+    /// # Examples
+    /// ```
+    /// use iset::IntervalMap;
+    /// use core::cmp::min;
+    ///
+    /// let mut map = IntervalMap::new();
+    /// map.force_insert(5..15, 0);
+    /// map.force_insert(10..20, 1);
+    /// map.force_insert(10..20, 2);
+    /// map.force_insert(10..20, 3);
+    /// map.force_insert(10..20, 4);
+    /// map.force_insert(15..25, 5);
+    ///
+    /// // Remove an entry with an even value
+    /// let removed = map.remove_select(10..20, |&x| x % 2 == 0);
+    /// assert!(removed == Some(2) || removed == Some(4));
+    ///
+    /// // Remove the entry with the minimum value
+    /// let mut minimum = None;
+    /// let removed = map.remove_select(10..20, |&x| {
+    ///     minimum = minimum.map(|y| min(x, y)).or(Some(x));
+    ///     false
+    /// });
+    /// assert!(removed.is_none());
+    /// assert_eq!(minimum, Some(1));
+    /// let removed = map.remove_select(10..20, |&x| Some(x) == minimum);
+    /// assert_eq!(removed, Some(1));
+    ///
+    /// assert_eq!(map.len(), 4);
+    /// ```
+    pub fn remove_select(
+        &mut self,
+        interval: Range<T>,
+        mut select: impl FnMut(&V) -> bool,
+    ) -> Option<V> {
+        self.find_equal_indices(
+            self.root,
+            &Interval::new(&interval),
+            &mut |index| match select(&self.nodes[index.get()].value) {
+                true => Some(index),
+                false => None,
+            },
+        )
+        .and_then(|index| self.remove_at(index))
+    }
+
     /// Returns a range of interval keys in the map, takes *O(1)*. Returns `None` if the map is empty.
     /// `out.start` is the minimal start of all intervals in the map,
     /// and `out.end` is the maximal end of all intervals in the map.

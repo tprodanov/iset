@@ -1,9 +1,12 @@
 //! Module with various iterators over `IntervalMap` and `IntervalSet`.
 
 use alloc::vec::Vec;
+use core::cmp::Ordering;
 use core::iter::FusedIterator;
 use core::mem;
 use core::ops::{Bound, Range, RangeBounds};
+
+use crate::Interval;
 
 use super::{check_ordered, BitVec, IndexType, IntervalMap, Node};
 
@@ -224,6 +227,110 @@ iterator! {
     struct ValuesMut -> &'a mut V,
     node -> unsafe { &mut *(&mut node.value as *mut V) }, { mut }
 }
+
+/*
+#[doc = "Iterator over values equal to range."]
+#[derive(Clone, Debug)]
+pub struct EqualValues<'a, T, V, Ix>
+where
+    T: PartialOrd + Copy,
+    Ix: IndexType,
+{
+    pub(crate) index: Ix,
+    interval: Interval<T>,
+    nodes: &'a [Node<T, V, Ix>],
+    stack: ActionStack,
+}
+impl<'a, T: PartialOrd + Copy, V, Ix: IndexType> EqualValues<'a, T, V, Ix> {
+    pub(crate) fn new(tree: &'a IntervalMap<T, V, Ix>, interval: Interval<T>) -> Self {
+        check_ordered(&interval);
+        Self {
+            index: tree.root,
+            interval,
+            nodes: &tree.nodes,
+            stack: ActionStack::new(),
+        }
+    }
+    fn should_go_left(nodes: &[Node<T, V, Ix>], index: Ix, interval: &R) -> bool {
+        if !nodes[index.get()].left.defined() {
+            return false;
+        }
+        let node = &nodes[nodes[index.get()].left.get()];
+        match interval.cmp(&node.interval) {
+            Ordering::Less => true,
+            Ordering::Greater => false,
+            Ordering::Equal => true,
+        }
+        let left_end = nodes[nodes[index.get()].left.get()].subtree_interval.end;
+        match start_bound {
+            Bound::Included(&value) | Bound::Excluded(&value) => left_end >= value,
+            Bound::Unbounded => true,
+        }
+    }
+    fn should_go_right(nodes: &[Node<T, V, Ix>], index: Ix, interval: &R) -> bool {
+        if !nodes[index.get()].right.defined() {
+            return false;
+        }
+        nodes[nodes[index.get()].right.get()].interval <= interval
+    }
+
+    fn move_to_next(
+        nodes: &[Node<T, V, Ix>],
+        mut index: Ix,
+        interval: &R,
+        stack: &mut ActionStack,
+    ) -> Ix
+    where
+        T: PartialOrd + Copy,
+        R: RangeBounds<T>,
+        Ix: IndexType,
+    {
+        while index.defined() {
+            if stack.can_go_left() {
+                while Self::should_go_left(nodes, index, interval) {
+                    stack.go_left();
+                    stack.push();
+                    index = nodes[index.get()].left;
+                }
+                stack.go_left();
+            }
+
+            if stack.can_match() {
+                stack.make_match();
+                if nodes[index.get()].interval == interval {
+                    return index;
+                }
+            }
+
+            if stack.can_go_right() && should_go_right(nodes, index, interval.end_bound()) {
+                stack.go_right();
+                stack.push();
+                index = nodes[index.get()].right;
+            } else {
+                stack.pop();
+                index = nodes[index.get()].parent;
+            }
+        }
+        index
+    }
+}
+impl<'a, T: PartialOrd + Copy, V, Ix: IndexType> Iterator for EqualValues<'a, T, V, Ix> {
+    type Item = &'a V;
+    fn next(&mut self) -> Option<Self::Item> {
+        self.index = Self::move_to_next(self.nodes, self.index, &self.interval, &mut self.stack);
+        if !self.index.defined() {
+            None
+        } else {
+            let node = &self.nodes[self.index.get()];
+            Some(&node.value)
+        }
+    }
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (0, Some(self.nodes.len()))
+    }
+}
+impl<'a, T: PartialOrd + Copy, V, Ix: IndexType> FusedIterator for EqualValues<'a, T, V, Ix> {}
+*/
 
 /// Macro that generates IntoIterator over IntervalMap.
 macro_rules! into_iterator {

@@ -853,6 +853,52 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
         self.remove_at(self.find_index(&interval))
     }
 
+    /// Call f() on all indices of nodes whose interval is equal to `interval`.  If f() returns
+    /// Some(x), stop traversal and return Some(x).
+    fn find_equal_indices<Ft>(
+        &self,
+        index: Ix,
+        interval: &Interval<T>,
+        f: &mut impl FnMut(Ix) -> Option<Ft>,
+    ) -> Option<Ft> {
+        if !index.defined() {
+            return None;
+        }
+        let node = &self.nodes[index.get()];
+        match interval.cmp(&node.interval) {
+            Ordering::Less => self.find_equal_indices(node.left, interval, f),
+            Ordering::Greater => self.find_equal_indices(node.right, interval, f),
+            Ordering::Equal => match f(index) {
+                Some(result) => Some(result),
+                None => {
+                    if let Some(result) = self.find_equal_indices(node.left, interval, f) {
+                        return Some(result);
+                    }
+                    self.find_equal_indices(node.right, interval, f)
+                }
+            },
+        }
+    }
+
+    /// Removes an entry, associated with `interval` (exact match is required) and for which
+    /// `select` returns `true`.  Takes *O(M + log N)*, where M is the number of entries with the
+    /// same interval.  Returns value if the interval was present in the map and `select`
+    /// returned `true`, and None otherwise.
+    ///
+    /// Panics if `interval` is empty (`start >= end`) or contains a value that cannot be
+    /// compared (such as `NAN`).
+    pub fn remove_select(&mut self, interval: Range<T>, select: impl Fn(&V) -> bool) -> Option<V> {
+        self.find_equal_indices(
+            self.root,
+            &Interval::new(&interval),
+            &mut |index| match select(&self.nodes[index.get()].value) {
+                true => Some(index),
+                false => None,
+            },
+        )
+        .and_then(|index| self.remove_at(index))
+    }
+
     /// Returns a range of interval keys in the map, takes *O(1)*. Returns `None` if the map is empty.
     /// `out.start` is the minimal start of all intervals in the map,
     /// and `out.end` is the maximal end of all intervals in the map.

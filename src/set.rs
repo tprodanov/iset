@@ -195,7 +195,7 @@ impl<T: PartialOrd + Copy, Ix: IndexType> IntervalSet<T, Ix> {
     /// Output is sorted by intervals.
     ///
     /// Panics if `interval` is empty or contains a value that cannot be compared (such as `NAN`).
-    pub fn iter<'a, R>(&'a self, query: R) -> Intervals<'a, T, (), R, Ix>
+    pub fn iter<R>(&self, query: R) -> Intervals<'_, T, (), R, Ix>
     where
         R: RangeBounds<T>,
     {
@@ -204,7 +204,7 @@ impl<T: PartialOrd + Copy, Ix: IndexType> IntervalSet<T, Ix> {
 
     /// Iterates over intervals `x..y` that overlap the `point`. Same as `iter(point..=point)`.
     /// See [iter](#method.iter) for more details.
-    pub fn overlap<'a>(&'a self, point: T) -> Intervals<'a, T, (), RangeInclusive<T>, Ix> {
+    pub fn overlap(&self, point: T) -> Intervals<'_, T, (), RangeInclusive<T>, Ix> {
         self.inner.intervals(point..=point)
     }
 
@@ -219,7 +219,7 @@ impl<T: PartialOrd + Copy, Ix: IndexType> IntervalSet<T, Ix> {
 
     /// Creates an unsorted iterator over all intervals `x..y`.
     /// Slightly faster than the sorted iterator, although both take *O(N)*.
-    pub fn unsorted_iter<'a>(&'a self) -> UnsIntervals<'a, T, (), Ix> {
+    pub fn unsorted_iter(&self) -> UnsIntervals<'_, T, (), Ix> {
         UnsIntervals::new(&self.inner)
     }
 
@@ -285,7 +285,7 @@ impl<T: PartialOrd + Copy + Debug, Ix: IndexType> Debug for IntervalSet<T, Ix> {
             } else {
                 need_comma = true;
             }
-            write!(f, "{:?}", interval)?;
+            write!(f, "{interval:?}")?;
         }
         write!(f, "}}")
     }

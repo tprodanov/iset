@@ -2,11 +2,20 @@ use super::*;
 
 impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
     /// Swap values and intervals for `i`-th and `j`-th nodes.
-    unsafe fn swap_nodes(&mut self, i: Ix, j: Ix) {
-        let ptr = self.nodes.as_mut_ptr();
-        let ptr_i = ptr.add(i.get());
-        let ptr_j = ptr.add(j.get());
-        (*ptr_i).swap_with(&mut *ptr_j);
+    fn swap_nodes(&mut self, i: Ix, j: Ix) {
+        let ptr_i = core::ptr::addr_of_mut!(self.nodes[i.get()].value);
+        let ptr_j = core::ptr::addr_of_mut!(self.nodes[j.get()].value);
+        unsafe {
+            core::ptr::swap(ptr_i, ptr_j);
+        }
+
+        let tmp = self.node(i).interval.clone();
+        self.node_mut(i).interval = self.node(j).interval.clone();
+        self.node_mut(j).interval = tmp;
+
+        let tmp = self.node(i).subtree_interval.clone();
+        self.node_mut(i).subtree_interval = self.node(j).subtree_interval.clone();
+        self.node_mut(j).subtree_interval = tmp;
     }
 
     /// Removes node at index i by swapping it with the last node.
@@ -21,67 +30,66 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
         }
 
         let ix = Ix::new(i).unwrap();
-        let left = self.nodes[i].left;
-        if left.defined() {
-            self.nodes[left.get()].parent = ix;
+        if let Some(left) = self.node(ix).left {
+            self.node_mut(left).parent = Some(ix);
+        }
+        if let Some(right) = self.node(ix).right {
+            self.node_mut(right).parent = Some(ix);
         }
 
-        let right = self.nodes[i].right;
-        if right.defined() {
-            self.nodes[right.get()].parent = ix;
-        }
-
-        let parent = self.nodes[i].parent;
         let old_ix = Ix::new(self.nodes.len()).unwrap();
-        if parent.defined() {
-            let parent_node = &mut self.nodes[parent.get()];
-            if parent_node.left == old_ix {
-                parent_node.left = ix;
+        if let Some(parent) = self.node(ix).parent {
+            let parent_node = self.node_mut(parent);
+            if parent_node.left == Some(old_ix) {
+                parent_node.left = Some(ix);
             } else {
-                debug_assert!(parent_node.right == old_ix);
-                parent_node.right = ix;
+                debug_assert!(parent_node.right == Some(old_ix));
+                parent_node.right = Some(ix);
             }
         }
 
-        if self.root == old_ix {
-            self.root = ix;
+        if self.root == Some(old_ix) {
+            self.root = Some(ix);
         }
         removed_val
     }
 
     fn remove_child(&mut self, parent: Ix, child: Ix) {
-        let parent_node = &mut self.nodes[parent.get()];
-        if parent_node.left == child {
-            parent_node.left = Ix::MAX;
+        let parent_node = self.node_mut(parent);
+        if parent_node.left == Some(child) {
+            parent_node.left = None;
         } else {
-            debug_assert!(parent_node.right == child);
-            parent_node.right = Ix::MAX;
+            debug_assert!(parent_node.right == Some(child));
+            parent_node.right = None;
         }
     }
 
-    fn set_child(&mut self, parent: Ix, child: Ix, left_side: bool) {
-        if child.defined() {
-            self.nodes[child.get()].parent = parent;
+    fn set_child(&mut self, parent: Ix, child: Option<Ix>, left_side: bool) {
+        if let Some(child) = child {
+            self.node_mut(child).parent = Some(parent);
         }
         if left_side {
-            self.nodes[parent.get()].left = child;
+            self.node_mut(parent).left = child;
         } else {
-            self.nodes[parent.get()].right = child;
+            self.node_mut(parent).right = child;
         }
     }
 
     fn replace_children(&mut self, prev_child: Ix, new_child: Ix) {
-        let parent = self.nodes[prev_child.get()].parent;
-        if parent.defined() {
-            if self.nodes[parent.get()].left == prev_child {
-                self.nodes[parent.get()].left = new_child;
-            } else {
-                self.nodes[parent.get()].right = new_child;
+        match self.node(prev_child).parent {
+            Some(parent) => {
+                let parent_node = self.node_mut(parent);
+                if parent_node.left == Some(prev_child) {
+                    parent_node.left = Some(new_child);
+                } else {
+                    parent_node.right = Some(new_child);
+                }
+                self.node_mut(new_child).parent = Some(parent);
             }
-            self.nodes[new_child.get()].parent = parent;
-        } else {
-            self.nodes[new_child.get()].parent = Ix::MAX;
-            self.root = new_child;
+            None => {
+                self.node_mut(new_child).parent = None;
+                self.root = Some(new_child);
+            }
         }
     }
 
@@ -90,37 +98,41 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
     fn restructure_rm_complex_cases(&mut self, mut ix: Ix) {
         loop {
             debug_assert!(self.is_black(ix));
-            let node = &self.nodes[ix.get()];
-            let parent_ix = node.parent;
+            let node = self.node(ix);
+            let parent_ix = match node.parent {
+                Some(parent) => parent,
+                None => {
+                    // Case (terminal): Node is the root of the tree.
+                    debug_assert!(self.root == Some(ix));
+                    return;
+                }
+            };
 
-            // Case (terminal): Node is the root of the tree.
-            if !parent_ix.defined() {
-                debug_assert!(self.root == ix);
-                return;
-            }
-
-            let parent = &self.nodes[parent_ix.get()];
+            let parent = self.node(parent_ix);
             let parent_black = self.is_black(parent_ix);
-            let node_is_left = parent.left == ix;
+            let node_is_left = parent.left == Some(ix);
             let sibling_ix = if node_is_left {
                 parent.right
             } else {
                 parent.left
             };
-            let (close_nephew_ix, distant_nephew_ix) = if sibling_ix.defined() {
-                let sibling = &self.nodes[sibling_ix.get()];
+            let (close_nephew_ix, distant_nephew_ix) = if let Some(sibling_ix) = sibling_ix {
+                let sibling = self.node(sibling_ix);
                 if node_is_left {
                     (sibling.left, sibling.right)
                 } else {
                     (sibling.right, sibling.left)
                 }
             } else {
-                (Ix::MAX, Ix::MAX)
+                (None, None)
             };
 
             let sibling_black = self.is_black_or_nil(sibling_ix);
             let close_nephew_black = self.is_black_or_nil(close_nephew_ix);
             let distant_nephew_black = self.is_black_or_nil(distant_nephew_ix);
+
+            // XXX not clear why this is OK, we just handled it being None above
+            let sibling_ix = sibling_ix.unwrap();
 
             if parent_black && close_nephew_black && distant_nephew_black {
                 if sibling_black {
@@ -132,7 +144,7 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
                     self.set_red(parent_ix);
                     self.set_black(sibling_ix);
                     self.replace_children(parent_ix, sibling_ix);
-                    self.set_child(sibling_ix, parent_ix, node_is_left);
+                    self.set_child(sibling_ix, Some(parent_ix), node_is_left);
                     self.set_child(parent_ix, close_nephew_ix, !node_is_left);
                 }
             }
@@ -144,98 +156,102 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
             }
             // Case: Node has any parent, sibling and distant nephew, but close nephew is red.
             else if sibling_black && distant_nephew_black && !close_nephew_black {
+                let close_nephew_ix = close_nephew_ix.unwrap(); // !black_or_nil
                 self.set_black(close_nephew_ix);
                 self.set_red(sibling_ix);
 
                 let close_newphew_child2 = if node_is_left {
-                    self.nodes[close_nephew_ix.get()].right
+                    self.node(close_nephew_ix).right
                 } else {
-                    self.nodes[close_nephew_ix.get()].left
+                    self.node(close_nephew_ix).left
                 };
                 self.set_child(sibling_ix, close_newphew_child2, node_is_left);
-                self.set_child(close_nephew_ix, sibling_ix, !node_is_left);
-                self.set_child(parent_ix, close_nephew_ix, !node_is_left);
+                self.set_child(close_nephew_ix, Some(sibling_ix), !node_is_left);
+                self.set_child(parent_ix, Some(close_nephew_ix), !node_is_left);
                 self.update_subtree_interval(sibling_ix);
                 self.update_subtree_interval(close_nephew_ix);
             }
             // Case (terminal): any parent, black sibling, any close sibling and any red distant nephew.
             else {
                 debug_assert!(sibling_black && !distant_nephew_black);
-                // parent's color -> sibling's color.
+                let distant_nephew_ix = distant_nephew_ix.unwrap(); // !black_or_nil
+                                                                    // parent's color -> sibling's color.
                 self.colors
                     .set(sibling_ix.get(), self.colors.get(parent_ix.get()));
                 self.set_black(parent_ix);
                 self.set_black(distant_nephew_ix);
                 self.replace_children(parent_ix, sibling_ix);
                 self.set_child(parent_ix, close_nephew_ix, !node_is_left);
-                self.set_child(sibling_ix, parent_ix, node_is_left);
+                self.set_child(sibling_ix, Some(parent_ix), node_is_left);
                 return;
             }
         }
     }
 
     /// Restructure the tree before removing `ix`.
-    fn restructure_rm(&mut self, ix: Ix, child_ix: Ix) {
+    fn restructure_rm(&mut self, ix: Ix, child_ix: Option<Ix>) {
         if self.is_red(ix) {
             // Both of the children must be NIL.
-            debug_assert!(!child_ix.defined());
+            debug_assert!(child_ix.is_none());
             // Do nothing.
         } else if !self.is_black_or_nil(child_ix) {
-            self.set_red(child_ix);
-            // Child will be removed later.
+            self.set_red(child_ix.unwrap()); // unwrap: !black_or_nil
+                                             // Child will be removed later.
         } else {
             self.restructure_rm_complex_cases(ix);
         }
     }
 
-    pub(super) fn remove_at(&mut self, ix: Ix) -> Option<V> {
-        if !ix.defined() {
-            return None;
-        }
+    pub(super) fn remove_at(&mut self, ix: Option<Ix>) -> Option<V> {
+        let ix = match ix {
+            Some(ix) => ix,
+            None => return None,
+        };
 
-        let node = &self.nodes[ix.get()];
-        let rm_ix = if !node.right.defined() || !node.right.defined() {
-            ix
-        } else {
-            // Searching for a minimal node in the right subtree.
-            let mut curr = node.right;
-            loop {
-                let left = self.nodes[curr.get()].left;
-                if !left.defined() {
-                    break curr;
+        let node = self.node(ix);
+        let rm_ix = match node.right {
+            None => ix,
+            Some(right) => {
+                // Searching for a minimal node in the right subtree.
+                let mut curr = right;
+                loop {
+                    match self.node(curr).left {
+                        Some(left) => curr = left,
+                        None => break curr,
+                    }
                 }
-                curr = left;
             }
         };
         if rm_ix != ix {
-            unsafe {
-                self.swap_nodes(ix, rm_ix);
-            }
+            self.swap_nodes(ix, rm_ix);
         }
 
-        let rm_node = &self.nodes[rm_ix.get()];
-        let child_ix = core::cmp::min(rm_node.left, rm_node.right);
+        let rm_node = self.node(rm_ix);
+        let child_ix = rm_node.left.or(rm_node.right);
         self.restructure_rm(rm_ix, child_ix);
 
-        if child_ix.defined() {
-            // Removed node has a child, replace the node with the child and remove the child.
-            unsafe {
+        match child_ix {
+            Some(child_ix) => {
+                // Removed node has a child, replace the node with the child and remove the child.
                 self.swap_nodes(rm_ix, child_ix);
+                self.remove_child(rm_ix, child_ix);
+                self.fix_intervals_up(Some(rm_ix));
+                Some(self.swap_remove(child_ix))
             }
-            self.remove_child(rm_ix, child_ix);
-            self.fix_intervals_up(rm_ix);
-            Some(self.swap_remove(child_ix))
-        } else {
-            // Removed node has no child, just remove the node.
-            let parent_ix = self.nodes[rm_ix.get()].parent;
-            if parent_ix.defined() {
-                self.remove_child(parent_ix, rm_ix);
-                self.fix_intervals_up(parent_ix);
-            } else {
-                debug_assert!(self.len() == 1 && self.root == rm_ix);
-                self.root = Ix::MAX;
+            None => {
+                // Removed node has no child, just remove the node.
+                match self.node(rm_ix).parent {
+                    Some(parent_ix) => {
+                        self.remove_child(parent_ix, rm_ix);
+                        self.fix_intervals_up(Some(parent_ix));
+                    }
+                    None => {
+                        debug_assert!(self.len() == 1 && self.root == Some(rm_ix));
+                        self.root = None;
+                    }
+                }
+                Some(self.swap_remove(rm_ix))
             }
-            Some(self.swap_remove(rm_ix))
         }
     }
 }

@@ -1,5 +1,6 @@
 //! Wrapper around integer types, used as indices within `IntervalMap` and `IntervalSet`.
 
+use core::convert::TryInto;
 use core::fmt::Display;
 
 /// Trait for index types: used in the inner representation of [IntervalMap](../struct.IntervalMap.html) and
@@ -13,60 +14,46 @@ use core::fmt::Display;
 ///
 /// Using smaller index types saves memory and slightly reduces running time.
 pub trait IndexType: Copy + Display + Sized + Eq + Ord {
-    /// Undefined index. There can be no indices higher than MAX.
-    const MAX: Self;
-
     /// Converts index into `usize`.
     fn get(self) -> usize;
 
     /// Creates a new index. Returns error if the `elemen_num` is too big.
     fn new(element_num: usize) -> Result<Self, &'static str>;
-
-    /// Returns `true` if the index is defined.
-    #[inline(always)]
-    fn defined(self) -> bool {
-        self != Self::MAX
-    }
-}
-
-macro_rules! index_error {
-    (u64) => {
-        "Failed to insert a new element into IntervalMap/Set: number of elements is too large for u64."
-    };
-    ($name:ident) => {
-        concat!(
-            "Failed to insert a new element into IntervalMap/Set: number of elements is too large for ",
-            stringify!($name),
-            ", try using u64.")
-    };
 }
 
 macro_rules! impl_index {
     ($type:ident) => {
-        impl IndexType for $type {
-            const MAX: Self = core::$type::MAX;
-
+        impl IndexType for core::num::$type {
             #[inline(always)]
             fn get(self) -> usize {
-                self as usize
+                (self.get() - 1) as usize
             }
 
             #[inline]
             fn new(element_num: usize) -> Result<Self, &'static str> {
-                let element_num = element_num as $type;
-                if element_num == core::$type::MAX {
-                    Err(index_error!($type))
-                } else {
-                    Ok(element_num as $type)
-                }
+                const ERROR_STR :&'static str=
+                    concat!(
+                        "Failed to insert a new element into IntervalMap/Set: number of elements is too large for ",
+                        stringify!($type),
+                        ", try using NonZeroU64.");
+                let nonzero = core::num::$type::new(
+                    element_num
+                        .checked_add(1)
+                        .ok_or(ERROR_STR)?
+                        .try_into()
+                        .map_err(|_| ERROR_STR)?,
+                )
+                .ok_or(ERROR_STR)?;
+                Ok(nonzero)
             }
         }
     };
 }
 
-impl_index!(u8);
-impl_index!(u16);
-impl_index!(u32);
-impl_index!(u64);
+impl_index!(NonZeroU8);
+impl_index!(NonZeroU16);
+impl_index!(NonZeroU32);
+impl_index!(NonZeroU64);
+impl_index!(NonZeroUsize);
 /// Default index type.
-pub type DefaultIx = u32;
+pub type DefaultIx = core::num::NonZeroU32;

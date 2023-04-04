@@ -1,12 +1,9 @@
 //! Module with various iterators over `IntervalMap` and `IntervalSet`.
 
 use alloc::vec::Vec;
-use core::cmp::Ordering;
 use core::iter::FusedIterator;
 use core::mem;
 use core::ops::{Bound, Range, RangeBounds};
-
-use crate::Interval;
 
 use super::{check_ordered, BitVec, IndexType, IntervalMap, Node};
 
@@ -15,13 +12,15 @@ where
     T: PartialOrd + Copy,
     Ix: IndexType,
 {
-    if !nodes[index.get()].left.defined() {
-        return false;
-    }
-    let left_end = nodes[nodes[index.get()].left.get()].subtree_interval.end;
-    match start_bound {
-        Bound::Included(&value) | Bound::Excluded(&value) => left_end >= value,
-        Bound::Unbounded => true,
+    match nodes[index.get()].left {
+        None => false,
+        Some(left) => {
+            let left_end = nodes[left.get()].subtree_interval.end;
+            match start_bound {
+                Bound::Included(&value) | Bound::Excluded(&value) => left_end >= value,
+                Bound::Unbounded => true,
+            }
+        }
     }
 }
 
@@ -30,14 +29,16 @@ where
     T: PartialOrd + Copy,
     Ix: IndexType,
 {
-    if !nodes[index.get()].right.defined() {
-        return false;
-    }
-    let right_start = nodes[nodes[index.get()].right.get()].subtree_interval.start;
-    match end_bound {
-        Bound::Included(&value) => right_start <= value,
-        Bound::Excluded(&value) => right_start < value,
-        Bound::Unbounded => true,
+    match nodes[index.get()].right {
+        None => false,
+        Some(right) => {
+            let right_start = nodes[right.get()].subtree_interval.start;
+            match end_bound {
+                Bound::Included(&value) => right_start <= value,
+                Bound::Excluded(&value) => right_start < value,
+                Bound::Unbounded => true,
+            }
+        }
     }
 }
 
@@ -101,21 +102,21 @@ impl ActionStack {
 
 fn move_to_next<T, V, R, Ix>(
     nodes: &[Node<T, V, Ix>],
-    mut index: Ix,
+    mut index_opt: Option<Ix>,
     range: &R,
     stack: &mut ActionStack,
-) -> Ix
+) -> Option<Ix>
 where
     T: PartialOrd + Copy,
     R: RangeBounds<T>,
     Ix: IndexType,
 {
-    while index.defined() {
+    while let Some(mut index) = index_opt {
         if stack.can_go_left() {
             while should_go_left(nodes, index, range.start_bound()) {
                 stack.go_left();
                 stack.push();
-                index = nodes[index.get()].left;
+                index = nodes[index.get()].left.unwrap();
             }
             stack.go_left();
         }
@@ -123,20 +124,20 @@ where
         if stack.can_match() {
             stack.make_match();
             if nodes[index.get()].interval.intersects_range(range) {
-                return index;
+                return Some(index);
             }
         }
 
         if stack.can_go_right() && should_go_right(nodes, index, range.end_bound()) {
             stack.go_right();
             stack.push();
-            index = nodes[index.get()].right;
+            index_opt = nodes[index.get()].right;
         } else {
             stack.pop();
-            index = nodes[index.get()].parent;
+            index_opt = nodes[index.get()].parent;
         }
     }
-    index
+    None
 }
 
 /// Macro that generates Iterator over IntervalMap.
@@ -152,7 +153,7 @@ macro_rules! iterator {
               R: RangeBounds<T>,
               Ix: IndexType,
         {
-            pub(crate) index: Ix,
+            pub(crate) index: Option<Ix>,
             range: R,
             nodes: &'a $( $mut_ )? [Node<T, V, Ix>],
             stack: ActionStack,
@@ -175,12 +176,10 @@ macro_rules! iterator {
 
             fn next(&mut self) -> Option<Self::Item> {
                 self.index = move_to_next(self.nodes, self.index, &self.range, &mut self.stack);
-                if !self.index.defined() {
-                    None
-                } else {
-                    let $node = & $( $mut_ )? self.nodes[self.index.get()];
-                    Some($out)
-                }
+                self.index.map(|index| {
+                    let $node = & $( $mut_ )? self.nodes[index.get()];
+                    $out
+                })
             }
 
             fn size_hint(& self) -> (usize, Option<usize>) {
@@ -345,7 +344,7 @@ macro_rules! into_iterator {
               R: RangeBounds<T>,
               Ix: IndexType,
         {
-            index: Ix,
+            index: Option<Ix>,
             range: R,
             nodes: Vec<Node<T, V, Ix>>,
             stack: ActionStack,
@@ -368,12 +367,10 @@ macro_rules! into_iterator {
 
             fn next(&mut self) -> Option<Self::Item> {
                 self.index = move_to_next(&self.nodes, self.index, &self.range, &mut self.stack);
-                if !self.index.defined() {
-                    None
-                } else {
-                    let $node = &mut self.nodes[self.index.get()];
-                    Some($out)
-                }
+                self.index.map(|index| {
+                    let $node = &mut self.nodes[index.get()];
+                    $out
+                })
             }
 
             fn size_hint(& self) -> (usize, Option<usize>) {

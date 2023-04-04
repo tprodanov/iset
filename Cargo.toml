@@ -2,7 +2,7 @@
 name = "iset"
 version = "0.1.1"
 authors = ["Timofey Prodanov <timofey.prodanov@gmail.com>"]
-edition = "2018"
+edition = "2021"
 description = "Map and set with interval keys (x..y)."
 repository = "https://github.com/tprodanov/iset"
 readme = "README.md"
@@ -26,5 +26,5 @@ rand = "0.8"
 serde_json = "1.0"
 
 [features]
-default = ["dot"]
+default = ["dot", "serde"]
 dot = []

@@ -2,6 +2,7 @@ extern crate rand;
 #[cfg(feature = "serde")]
 extern crate serde_json;
 
+use core::num::NonZeroU32;
 use rand::prelude::*;
 use std::fmt::{Debug, Write};
 use std::fs::File;
@@ -34,7 +35,7 @@ where
     let left = node.left;
     let right = node.right;
 
-    let left_depth = if left.defined() {
+    let left_depth = if let Some(left) = left {
         if tree.is_red(index) {
             assert!(
                 tree.is_black(left),
@@ -52,7 +53,7 @@ where
     } else {
         None
     };
-    let right_depth = if right.defined() {
+    let right_depth = if let Some(right) = right {
         if tree.is_red(index) {
             assert!(
                 tree.is_black(right),
@@ -97,43 +98,46 @@ where
 
 fn validate<T: PartialOrd + Copy, V, Ix: IndexType>(tree: &IntervalMap<T, V, Ix>, size: usize) {
     assert_eq!(size, tree.len(), "Tree sizes do not match");
-    assert_eq!(size > 0, tree.root.defined(), "Tree root != size");
+    assert_eq!(size > 0, tree.root.is_some(), "Tree root != size");
     assert_eq!(
         tree.len(),
         tree.colors.len(),
         "Number of nodes != number of colors"
     );
 
-    if !tree.root.defined() {
-        assert!(tree.nodes.is_empty(), "Non empty nodes with an empty root");
-        return;
-    }
+    let root = match tree.root {
+        Some(root) => root,
+        None => {
+            assert!(tree.nodes.is_empty(), "Non empty nodes with an empty root");
+            return;
+        }
+    };
     for i in 0..tree.nodes.len() {
-        if i == tree.root.get() {
+        if i == root.get() {
             assert!(
-                !tree.nodes[i].parent.defined(),
+                !tree.nodes[i].parent.is_some(),
                 "Root {} has a parent {}",
                 i,
-                tree.nodes[i].parent
+                tree.nodes[i].parent.unwrap()
             );
         } else {
             assert!(
-                tree.nodes[i].parent.defined(),
+                tree.nodes[i].parent.is_some(),
                 "Non-root {} has an empty parent (root is {})",
                 i,
-                tree.root
+                root
             );
         }
     }
 
-    let node = &tree.nodes[tree.root.get()];
+    let node = tree.node(root);
     let mut interval = node.interval.clone();
     let mut visited = BitVec::from_elem(tree.nodes.len(), false);
-    validate_tree_recursive(tree, tree.root, &mut interval, &mut visited);
+    validate_tree_recursive(tree, root, &mut interval, &mut visited);
     assert!(
         interval == node.subtree_interval,
         "Interval != subtree interval for node {}",
-        tree.root
+        root
     );
 
     for i in 0..tree.len() {
@@ -187,10 +191,10 @@ impl<T: PartialOrd + Copy, V> NaiveIntervalMap<T, V> {
             .map(|(range, value)| (range.clone(), value))
     }
 
-    fn all_matching<'a>(&'a self, query: Range<T>) -> impl Iterator<Item = &V> + 'a {
+    fn all_matching(&self, query: Range<T>) -> impl Iterator<Item = &V> + '_ {
         self.nodes
             .iter()
-            .filter(move |(range, _value)| range_eq(&range, &query))
+            .filter(move |(range, _value)| range_eq(range, &query))
             .map(|(_range, value)| value)
     }
 
@@ -690,7 +694,7 @@ fn test_float_inserts() {
 fn test_from_sorted() {
     const COUNT: u32 = 1000;
     let mut vec = Vec::new();
-    let mut map: IntervalMap<_, _, u32> = IntervalMap::from_sorted(vec.clone().into_iter());
+    let mut map: IntervalMap<_, _, NonZeroU32> = IntervalMap::from_sorted(vec.clone().into_iter());
     validate(&map, 0);
 
     for i in 0..COUNT {

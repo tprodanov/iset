@@ -1,6 +1,6 @@
 [package]
 name = "iset"
-version = "0.1.1"
+version = "0.2.0"
 authors = ["Timofey Prodanov <timofey.prodanov@gmail.com>"]
 edition = "2018"
 description = "Map and set with interval keys (x..y)."
@@ -26,5 +26,6 @@ rand = "0.8"
 serde_json = "1.0"
 
 [features]
-default = ["dot"]
+default = []
+serde = ["dep:serde"]
 dot = []

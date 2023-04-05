@@ -375,6 +375,22 @@ fn check_ordered<T: PartialOrd, R: RangeBounds<T>>(range: &R) {
 /// let map: IntervalMap<_, _> = vec.into_iter().collect();
 /// ```
 ///
+/// # Entry API
+/// IntervalMap implements [Entry](entry/enum.Entry.html), for updating and inserting values
+/// directly after search was made.
+/// ```
+/// let mut map = iset::IntervalMap::new();
+/// map.entry(0..100).or_insert("abc".to_string());
+/// map.entry(100..200).or_insert_with(|| "def".to_string());
+/// let val = map.entry(200..300).or_insert(String::new());
+/// *val += "ghi";
+/// map.entry(200..300).and_modify(|s| *s += "jkl").or_insert("xyz".to_string());
+///
+/// assert_eq!(map[0..100], "abc");
+/// assert_eq!(map[100..200], "def");
+/// assert_eq!(map[200..300], "ghijkl");
+/// ```
+///
 /// # Implementation, merge and split
 ///
 /// To allow for fast retrieval of all intervals overlapping a query, we store the range of the subtree in each node

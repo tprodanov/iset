@@ -118,6 +118,10 @@ impl<T: PartialOrd + Copy, V> NaiveIntervalMap<T, V> {
         self.nodes.len()
     }
 
+    fn is_empty(&self) -> bool {
+        self.nodes.is_empty()
+    }
+
     fn insert(&mut self, range: Range<T>, value: V) {
         self.nodes.push((range, value));
     }
@@ -536,7 +540,7 @@ fn removal_with_insert_chance(insert_chance: f64, count: u32) {
     let mut rng = thread_rng();
     for i in 0..count {
         let r = rng.gen::<f64>();
-        if naive.len() == 0 || r <= insert_chance {
+        if naive.is_empty() || r <= insert_chance {
             let range = range_generator();
             println!("map.insert({:?}, {});", range, i);
             naive.insert(range.clone(), i);

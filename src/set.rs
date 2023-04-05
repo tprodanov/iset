@@ -57,10 +57,7 @@ use super::iter::*;
 /// In contrast to the [IntervalMap](../struct.IntervalMap.html), `IntervalSet` does not have a
 /// [force_insert](../struct.IntervalMap.html#method.force_insert), and completely forbids duplicate intervals.
 #[derive(Clone)]
-pub struct IntervalSet<T, Ix = DefaultIx>
-where T: PartialOrd + Copy,
-      Ix: IndexType,
-{
+pub struct IntervalSet<T, Ix: IndexType = DefaultIx> {
     inner: IntervalMap<T, (), Ix>,
 }
 

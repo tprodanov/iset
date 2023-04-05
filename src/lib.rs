@@ -24,6 +24,7 @@ extern crate alloc;
 pub mod ix;
 pub mod iter;
 pub mod set;
+pub mod entry;
 mod tree_rm;
 mod bitvec;
 
@@ -48,10 +49,12 @@ use {
 };
 
 use ix::IndexType;
-pub use ix::DefaultIx;
 use iter::*;
-pub use set::IntervalSet;
 use bitvec::BitVec;
+
+pub use ix::DefaultIx;
+pub use set::IntervalSet;
+pub use entry::Entry;
 
 #[derive(Clone, Debug, PartialEq, PartialOrd)]
 struct Interval<T> {
@@ -66,11 +69,6 @@ impl<T: PartialOrd + Copy> Interval<T> {
             start: range.start,
             end: range.end,
         }
-    }
-
-    #[inline]
-    fn to_range(&self) -> Range<T> {
-        self.start..self.end
     }
 
     fn intersects_range<R: RangeBounds<T>>(&self, range: &R) -> bool {
@@ -98,6 +96,13 @@ impl<T: PartialOrd + Copy> Interval<T> {
 
     fn contains(&self, other: &Interval<T>) -> bool {
         self.start <= other.start && other.end <= self.end
+    }
+}
+
+impl<T: Copy> Interval<T> {
+    #[inline]
+    fn to_range(&self) -> Range<T> {
+        self.start..self.end
     }
 }
 
@@ -387,10 +392,7 @@ fn check_ordered<T: PartialOrd, R: RangeBounds<T>>(range: &R) {
 /// [from_sorted](#method.from_sorted), [itertools::merge](https://docs.rs/itertools/latest/itertools/fn.merge.html)
 /// and [Iterator::partition](https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.partition) in linear time.
 #[derive(Clone)]
-pub struct IntervalMap<T, V, Ix = DefaultIx>
-where T: PartialOrd + Copy,
-      Ix: IndexType,
-{
+pub struct IntervalMap<T, V, Ix: IndexType = DefaultIx> {
     nodes: Vec<Node<T, V, Ix>>,
     // true if the node is red, false if black.
     colors: BitVec,
@@ -434,11 +436,11 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
                 // Set red.
                 self.colors.set1(start);
             }
-            return Ix::new(start).unwrap_or_else(|error| panic!("{}", error));
+            return Ix::new(start).unwrap();
         }
 
         let center = (start + end) / 2;
-        let center_ix = Ix::new(center).unwrap_or_else(|error| panic!("{}", error));
+        let center_ix = Ix::new(center).unwrap();
         if start < center {
             let left_ix = self.init_from_sorted(start, center, rev_depth - 1);
             self.nodes[center].left = left_ix;
@@ -666,45 +668,88 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
         }
     }
 
+    /// Inserts pair `(interval, value)` as a child of `parent`. Left child if `left_child`, right child otherwise.
+    /// Returns mutable reference to the added value.
+    fn insert_at(&mut self, parent: Ix, left_child: bool, interval: Interval<T>, value: V) -> &mut V {
+        let mut new_node = Node::new(interval, value);
+        let new_index = Ix::new(self.nodes.len()).unwrap();
+
+        if !parent.defined() {
+            assert!(self.nodes.is_empty());
+            self.nodes.push(new_node);
+            // New node should be black.
+            self.colors.push(false);
+            self.root = new_index;
+            return &mut self.nodes[new_index.get()].value;
+        }
+
+        new_node.parent = parent;
+        self.nodes.push(new_node);
+        if left_child {
+            self.nodes[parent.get()].left = new_index;
+        } else {
+            self.nodes[parent.get()].right = new_index;
+        }
+        self.colors.push(true);
+        self.fix_intervals_up(parent);
+        self.insert_repair(new_index);
+        &mut self.nodes[new_index.get()].value
+    }
+
     /// Insert pair `(interval, value)`.
     /// If both `replace` and `interval` was already in the map, replacing the value and returns the old value.
     /// Otherwise, inserts a new node and returns None.
     fn insert_inner(&mut self, interval: Range<T>, value: V, replace: bool) -> Option<V> {
         let interval = Interval::new(&interval);
         let mut current = self.root;
-        let new_index = Ix::new(self.nodes.len()).unwrap_or_else(|error| panic!("{}", error));
 
         if !current.defined() {
-            self.root = new_index;
-            self.nodes.push(Node::new(interval, value));
-            // New node should be black.
-            self.colors.push(false);
+            self.insert_at(current, true, interval, value);
             return None;
         }
-
         loop {
             let node = &mut self.nodes[current.get()];
-            let child = match interval.cmp(&node.interval) {
-                Ordering::Less => &mut node.left,
-                Ordering::Equal if replace => {
-                    let old_val = core::mem::replace(&mut node.value, value);
-                    self.fix_intervals_up(current);
-                    return Some(old_val);
-                }
-                // If Ordering::Greater or if Equal and there is no replacing.
-                _ => &mut node.right,
+            let (child, left_side) = match interval.cmp(&node.interval) {
+                Ordering::Less => (node.left, true),
+                Ordering::Equal if replace => return Some(core::mem::replace(&mut node.value, value)),
+                Ordering::Equal | Ordering::Greater => (node.right, false),
             };
             if child.defined() {
-                current = *child;
+                current = child;
             } else {
-                let mut new_node = Node::new(interval, value);
-                *child = new_index;
-                new_node.parent = current;
-                self.nodes.push(new_node);
-                self.colors.push(true);
-                self.fix_intervals_up(current);
-                self.insert_repair(new_index);
+                self.insert_at(current, left_side, interval, value);
                 return None;
+            }
+        }
+    }
+
+    /// Gets the given key's corresponding entry in the map for in-place manipulation.
+    /// ```
+    /// let mut counts = iset::IntervalMap::new();
+    /// for x in [0..5, 3..9, 2..6, 0..5, 2..6, 2..6] {
+    ///     counts.entry(x).and_modify(|curr| *curr += 1).or_insert(1);
+    /// }
+    /// assert_eq!(counts[0..5], 2);
+    /// assert_eq!(counts[3..9], 1);
+    /// assert_eq!(counts[2..6], 3);
+    /// ```
+    pub fn entry<'a>(&'a mut self, interval: Range<T>) -> Entry<'a, T, V, Ix> {
+        let interval = Interval::new(&interval);
+        let mut current = self.root;
+        if !current.defined() {
+            return Entry::Vacant(entry::VacantEntry::new(self, current, true, interval));
+        }
+        loop {
+            let node = &mut self.nodes[current.get()];
+            let (child, left_side) = match interval.cmp(&node.interval) {
+                Ordering::Less => (node.left, true),
+                Ordering::Greater => (node.right, false),
+                Ordering::Equal => return Entry::Occupied(entry::OccupiedEntry::new(self, current)),
+            };
+            if child.defined() {
+                current = child;
+            } else {
+                return Entry::Vacant(entry::VacantEntry::new(self, current, left_side, interval));
             }
         }
     }
@@ -714,7 +759,6 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
     /// If the map did not contain the interval, returns `None`. Otherwise returns the old value.
     ///
     /// Panics if `interval` is empty (`start >= end`) or contains a value that cannot be compared (such as `NAN`).
-    #[inline]
     pub fn insert(&mut self, interval: Range<T>, value: V) -> Option<V> {
         self.insert_inner(interval, value, true)
     }
@@ -750,7 +794,6 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
     /// // {10..20 => 1, 15..25 => 4, 20..30 => 3} OR
     /// // {10..20 => 1, 15..25 => 2, 20..30 => 3}
     /// ```
-    #[inline]
     pub fn force_insert(&mut self, interval: Range<T>, value: V) {
         // Cannot be replaced with debug_assert.
         assert!(self.insert_inner(interval, value, false).is_none(), "Force insert should always return None");

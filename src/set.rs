@@ -1,10 +1,10 @@
 //! `IntervalSet` implementation.
 
-use core::ops::{Range, RangeInclusive, RangeBounds, RangeFull, AddAssign, Sub};
-use core::fmt::{self, Debug, Formatter};
-use core::iter::{FromIterator, IntoIterator};
-#[cfg(feature = "dot")]
-use core::fmt::Display;
+use core::{
+    ops::{Range, RangeInclusive, RangeBounds, RangeFull, AddAssign, Sub},
+    fmt::{self, Debug, Formatter},
+    iter::{FromIterator, IntoIterator},
+};
 #[cfg(feature = "dot")]
 use std::io::{self, Write};
 #[cfg(feature = "serde")]
@@ -260,7 +260,7 @@ where T: PartialOrd + Copy + Default + AddAssign + Sub<Output = T>,
 }
 
 #[cfg(feature = "dot")]
-impl<T: PartialOrd + Copy + Display, Ix: IndexType> IntervalSet<T, Ix> {
+impl<T: PartialOrd + Copy + core::fmt::Display, Ix: IndexType> IntervalSet<T, Ix> {
     /// Writes dot file to `writer`. `T` should implement `Display`.
     pub fn write_dot<W: Write>(&self, writer: W) -> io::Result<()> {
         self.inner.write_dot_without_values(writer)

@@ -20,7 +20,7 @@
 
 #![no_std]
 
-#[cfg(feature = "dot")]
+#[cfg(feature = "std")]
 #[macro_use]
 extern crate std;
 extern crate alloc;
@@ -35,10 +35,12 @@ mod bitvec;
 mod tests;
 
 use alloc::vec::Vec;
-use core::ops::{Range, RangeFull, RangeInclusive, RangeBounds, Bound, AddAssign, Sub, Index};
-use core::fmt::{self, Debug, Display, Formatter};
-use core::iter::{FromIterator, IntoIterator};
-use core::cmp::Ordering;
+use core::{
+    ops::{Range, RangeFull, RangeInclusive, RangeBounds, Bound, AddAssign, Sub, Index},
+    fmt::{self, Debug, Display, Formatter},
+    cmp::Ordering,
+    iter::FromIterator,
+};
 #[cfg(feature = "dot")]
 use std::io::{self, Write};
 #[cfg(feature = "serde")]

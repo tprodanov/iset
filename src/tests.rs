@@ -5,8 +5,6 @@ extern crate serde_json;
 use std::string::String;
 use std::ops::{self, Range, RangeBounds, Bound};
 use std::fmt::{Debug, Write};
-use std::fs::File;
-use std::path::Path;
 use rand::prelude::*;
 
 use super::*;
@@ -393,11 +391,6 @@ fn test_int_inserts() {
     let mut tree = IntervalMap::new();
     let history = modify_maps(&mut naive, &mut tree, COUNT, generate_range(generate_int(20, 120)));
 
-    let output_path = Path::new("tests/data/int.dot");
-    let folders = output_path.parent().unwrap();
-    std::fs::create_dir_all(folders).unwrap();
-    let f = File::create(output_path).unwrap();
-    tree.write_dot(f).unwrap();
     validate(&tree, naive.len());
     compare_extremums(&naive, &tree, &history);
 
@@ -435,11 +428,6 @@ fn test_float_inserts() {
     let mut tree = IntervalMap::new();
     let history = modify_maps(&mut naive, &mut tree, COUNT, generate_range(generate_float(0.0, 1000.0)));
 
-    let output_path = Path::new("tests/data/float.dot");
-    let folders = output_path.parent().unwrap();
-    std::fs::create_dir_all(folders).unwrap();
-    let f = File::create(output_path).unwrap();
-    tree.write_dot(f).unwrap();
     validate(&tree, naive.len());
     compare_extremums(&naive, &tree, &history);
 

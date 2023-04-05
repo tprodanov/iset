@@ -12,7 +12,7 @@ in *O(log N + K)* where *K* is the size of the output.
 The following code constructs a small interval map and search for intervals/values overlapping various queries.
 
 ```rust
-#[macro_use] extern crate iset;
+use iset::interval_map;
 
 let mut map = interval_map!{ 20..30 => 'a', 15..25 => 'b', 10..20 => 'c' };
 assert_eq!(map.insert(10..20, 'd'), Some('c'));

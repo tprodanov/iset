@@ -1,11 +1,14 @@
-extern crate rand;
-#[cfg(feature = "serde")]
-extern crate serde_json;
-
-use std::string::String;
-use std::ops::{self, Range, RangeBounds, Bound};
-use std::fmt::{Debug, Write};
+use std::{
+    string::String,
+    ops::{self, Range, RangeBounds, Bound},
+    fmt::{Debug, Write},
+};
 use rand::prelude::*;
+#[cfg(feature = "serde")]
+use std::{
+    path::Path,
+    fs::File,
+};
 
 use super::*;
 

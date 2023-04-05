@@ -243,9 +243,7 @@ fn check_ordered<T: PartialOrd, R: RangeBounds<T>>(range: &R) {
 ///
 /// # Example.
 ///```rust
-/// #[macro_use] extern crate iset;
-///
-/// let mut map = interval_map!{ 20..30 => 'a', 15..25 => 'b', 10..20 => 'c' };
+/// let mut map = iset::interval_map!{ 20..30 => 'a', 15..25 => 'b', 10..20 => 'c' };
 /// assert_eq!(map.insert(10..20, 'd'), Some('c'));
 /// assert_eq!(map.insert(5..15, 'e'), None);
 ///
@@ -334,8 +332,7 @@ fn check_ordered<T: PartialOrd, R: RangeBounds<T>>(range: &R) {
 ///
 /// An interval map can be created using the following methods:
 /// ```rust
-/// #[macro_use] extern crate iset;
-/// use iset::IntervalMap;
+/// use iset::{interval_map, IntervalMap};
 ///
 /// // Creates an empty interval map with the default index type (u32):
 /// let mut map = IntervalMap::new();
@@ -1381,7 +1378,7 @@ where
 
 /// Macros for [IntervalMap](struct.IntervalMap.html) creation.
 /// ```rust
-/// #[macro_use] extern crate iset;
+/// use iset::interval_map;
 ///
 /// let map = interval_map!{ 0..10 => "a", 5..15 => "b", -5..20 => "c" };
 /// let a: Vec<_> = map.iter(..).collect();
@@ -1405,7 +1402,8 @@ macro_rules! interval_map {
         {
             let mut _temp_map = $crate::IntervalMap::<_, _, $ix>::default();
             $(
-                assert!(_temp_map.insert($k, $v).is_none(), "Cannot use interval_map!{ ... } with duplicate intervals");
+                assert!(_temp_map.insert($k, $v).is_none(),
+                    "Cannot use interval_map!{{ ... }} with duplicate intervals");
             )*
             _temp_map
         }
@@ -1416,7 +1414,8 @@ macro_rules! interval_map {
         {
             let mut _temp_map = $crate::IntervalMap::new();
             $(
-                assert!(_temp_map.insert($k, $v).is_none(), "Cannot use interval_map!{ ... } with duplicate intervals");
+                assert!(_temp_map.insert($k, $v).is_none(),
+                    "Cannot use interval_map!{{ ... }} with duplicate intervals");
             )*
             _temp_map
         }
@@ -1425,7 +1424,7 @@ macro_rules! interval_map {
 
 /// Macros for [IntervalSet](set/struct.IntervalSet.html) creation.
 /// ```rust
-/// #[macro_use] extern crate iset;
+/// use iset::interval_set;
 ///
 /// let set = interval_set!{ 100..210, 50..150 };
 /// let a: Vec<_> = set.iter(..).collect();

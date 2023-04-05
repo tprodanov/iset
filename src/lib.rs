@@ -288,6 +288,9 @@ fn check_ordered<T: PartialOrd, R: RangeBounds<T>>(range: &R) {
 /// It is possible to store entries with equal intervals by calling [force_insert](#method.force_insert).
 /// This method should be used with care, as methods [get](#method.get), [get_mut](#method.get_mut) and
 /// [remove](#method.remove) only return/remove a single entry (see [force_insert](#method.force_insert) for more details).
+/// Nevertheless, functions [values_at](#method.values_at) and [values_mut_at](#method.values_mut_at)
+/// allow to iterate over all values with exactly matching query,
+/// and [remove_where](#method.remove_where) allows to remove an entry with matching interval based on a predicate.
 ///
 /// Additionally, it is possible to get or remove the entry with the smallest/largest interval in the map
 /// (in lexicographical order), see [smallest](#method.smallest), [largest](#method.largest), etc.

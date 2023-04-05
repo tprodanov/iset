@@ -54,15 +54,9 @@ pub use set::IntervalSet;
 use bitvec::BitVec;
 
 #[derive(Clone, Debug, PartialEq, PartialOrd)]
-struct Interval<T: PartialOrd + Copy> {
+struct Interval<T> {
     start: T,
     end: T,
-}
-
-impl<T: PartialOrd + Copy + Display> Display for Interval<T> {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        write!(f, "{}..{}", self.start, self.end)
-    }
 }
 
 impl<T: PartialOrd + Copy> Interval<T> {
@@ -107,6 +101,12 @@ impl<T: PartialOrd + Copy> Interval<T> {
     }
 }
 
+impl<T: Display> Display for Interval<T> {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        write!(f, "{}..{}", self.start, self.end)
+    }
+}
+
 impl<T: PartialOrd + Copy> Ord for Interval<T> {
     fn cmp(&self, other: &Self) -> Ordering {
         // Implement cmp by ourselves because T can be PartialOrd.
@@ -129,14 +129,14 @@ impl<T: PartialOrd + Copy> Ord for Interval<T> {
 impl<T: PartialOrd + Copy> Eq for Interval<T> { }
 
 #[cfg(feature = "serde")]
-impl<T: PartialOrd + Copy + Serialize> Serialize for Interval<T> {
+impl<T: Serialize> Serialize for Interval<T> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        (self.start, self.end).serialize(serializer)
+        (&self.start, &self.end).serialize(serializer)
     }
 }
 
 #[cfg(feature = "serde")]
-impl<'de, T: PartialOrd + Copy + Deserialize<'de>> Deserialize<'de> for Interval<T> {
+impl<'de, T: Deserialize<'de>> Deserialize<'de> for Interval<T> {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let (start, end) = <(T, T)>::deserialize(deserializer)?;
         Ok(Interval { start, end })
@@ -145,7 +145,7 @@ impl<'de, T: PartialOrd + Copy + Deserialize<'de>> Deserialize<'de> for Interval
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
-struct Node<T: PartialOrd + Copy, V, Ix: IndexType> {
+struct Node<T, V, Ix> {
     interval: Interval<T>,
     subtree_interval: Interval<T>,
     value: V,
@@ -154,7 +154,7 @@ struct Node<T: PartialOrd + Copy, V, Ix: IndexType> {
     parent: Ix,
 }
 
-impl<T: PartialOrd + Copy, V, Ix: IndexType> Node<T, V, Ix> {
+impl<T: Copy, V, Ix: IndexType> Node<T, V, Ix> {
     fn new(interval: Interval<T>, value: V) -> Self {
         Node {
             interval: interval.clone(),
@@ -165,7 +165,9 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> Node<T, V, Ix> {
             parent: Ix::MAX,
         }
     }
+}
 
+impl<T, V, Ix: IndexType> Node<T, V, Ix> {
     /// Swaps values and intervals between two mutable nodes.
     fn swap_with(&mut self, other: &mut Self) {
         core::mem::swap(&mut self.value, &mut other.value);
@@ -175,7 +177,7 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> Node<T, V, Ix> {
 }
 
 #[cfg(feature = "dot")]
-impl<T: PartialOrd + Copy + Display, V: Display, Ix: IndexType> Node<T, V, Ix> {
+impl<T: Display, V: Display, Ix: IndexType> Node<T, V, Ix> {
     fn write_dot<W: Write>(&self, index: usize, is_red: bool, mut writer: W) -> io::Result<()> {
         writeln!(writer, "    {} [label=\"i={}\\n{}: {}\\nsubtree: {}\", fillcolor={}, style=filled]",
             index, index, self.interval, self.value, self.subtree_interval, if is_red { "salmon" } else { "grey65" })?;
@@ -190,7 +192,7 @@ impl<T: PartialOrd + Copy + Display, V: Display, Ix: IndexType> Node<T, V, Ix> {
 }
 
 #[cfg(feature = "dot")]
-impl<T: PartialOrd + Copy + Display, V, Ix: IndexType> Node<T, V, Ix> {
+impl<T: Display, V, Ix: IndexType> Node<T, V, Ix> {
     fn write_dot_without_values<W: Write>(&self, index: usize, is_red: bool, mut writer: W) -> io::Result<()> {
         writeln!(writer, "    {} [label=\"i={}: {}\\nsubtree: {}\", fillcolor={}, style=filled]",
             index, index, self.interval, self.subtree_interval, if is_red { "salmon" } else { "grey65" })?;
@@ -413,22 +415,6 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> Default for IntervalMap<T, V, Ix> {
     }
 }
 
-#[cfg(not(std))]
-fn calculate_max_depth(mut n: usize) -> u16 {
-    // Same as `((n + 1) as f64).log2().ceil() as u16`, but without std.
-    let mut depth = 0;
-    while n > 0 {
-        n >>= 1;
-        depth += 1;
-    }
-    depth
-}
-
-#[cfg(std)]
-fn calculate_max_depth(n: usize) -> u16 {
-    ((n + 1) as f64).log2().ceil() as u16
-}
-
 impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
     /// Creates an empty [IntervalMap](struct.IntervalMap.html) with `capacity`.
     pub fn with_capacity(capacity: usize) -> Self {
@@ -486,7 +472,7 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
                 i, i + 1);
         }
         if n > 0 {
-            let max_depth = calculate_max_depth(n);
+            let max_depth = (usize::BITS - n.leading_zeros()) as u16;
             map.root = map.init_from_sorted(0, n, max_depth);
         }
         map

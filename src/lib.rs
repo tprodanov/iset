@@ -21,7 +21,6 @@
 #![no_std]
 
 #[cfg(feature = "std")]
-#[macro_use]
 extern crate std;
 extern crate alloc;
 
@@ -104,6 +103,10 @@ impl<T: PartialOrd + Copy> Interval<T> {
         if other.end > self.end {
             self.end = other.end;
         }
+    }
+
+    fn contains(&self, other: &Interval<T>) -> bool {
+        self.start <= other.start && other.end <= self.end
     }
 }
 
@@ -366,7 +369,8 @@ fn check_ordered<T: PartialOrd, R: RangeBounds<T>>(range: &R) {
 ///
 /// To allow for fast retrieval of all intervals overlapping a query, we store the range of the subtree in each node
 /// of the tree. Additionally, each node stores indices to the parent and to two children.
-/// As a result, size of the map is approximately `4 * sizeof(T) + sizeof(V) + 3 * sizeof(Ix)`.
+/// As a result, size of the map is approximately `n * (4 * sizeof(T) + sizeof(V) + 3 * sizeof(Ix))`,
+/// where `n` is the number of elements.
 ///
 /// In order to reduce number of heap allocations and access memory consecutively, we store tree nodes in a vector.
 /// This does not impact time complexity of all methods except for *merge* and *split*.
@@ -815,6 +819,75 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
     /// Panics if `interval` is empty (`start >= end`) or contains a value that cannot be compared (such as `NAN`).
     pub fn remove(&mut self, interval: Range<T>) -> Option<V> {
         self.remove_at(self.find_index(&interval))
+    }
+
+    /// Finds any node where the interval is exactly equal to `query`, and where `select(value)` returns true.
+    fn find_exact_index_by(&self, query: &Interval<T>, mut select: impl FnMut(&V) -> bool) -> Option<Ix> {
+        if !self.root.defined() {
+            return None;
+        }
+        let mut queue = Vec::new();
+        queue.push(self.root);
+
+        while let Some(index) = queue.pop() {
+            let node = &self.nodes[index.get()];
+            if query == &node.interval && select(&node.value) {
+                return Some(index);
+            }
+            if node.subtree_interval.contains(query) {
+                if node.left.defined() {
+                    queue.push(node.left);
+                }
+                if node.left.defined() {
+                    queue.push(node.left);
+                }
+            }
+        }
+        None
+    }
+
+    /// Removes an entry, associated with `interval` (exact match is required),
+    /// where `select(&value)` returns true.
+    /// After `select` returns `true`, it is not invoked again.
+    /// Returns the value of the removed entry, if present, and None otherwise.
+    ///
+    /// Takes *O(N)* in the worst case (all intervals are equal).
+    ///
+    /// Panics if `interval` is empty (`start >= end`) or contains a value that cannot be compared (such as `NAN`).
+    ///
+    /// # Examples
+    /// ```
+    /// use iset::IntervalMap;
+    /// use core::cmp::min;
+    ///
+    /// let mut map = IntervalMap::new();
+    /// map.force_insert(5..15, 0);
+    /// map.force_insert(10..20, 1);
+    /// map.force_insert(10..20, 2);
+    /// map.force_insert(10..20, 3);
+    /// map.force_insert(10..20, 4);
+    /// map.force_insert(15..25, 5);
+    ///
+    /// // Remove an entry with an even value
+    /// let removed = map.remove_where(10..20, |&x| x % 2 == 0);
+    /// assert!(removed == Some(2) || removed == Some(4));
+    ///
+    /// // Remove the entry with the minimum value
+    /// let mut minimum = None;
+    /// let removed = map.remove_where(10..20, |&x| {
+    ///     minimum = minimum.map(|y| min(x, y)).or(Some(x));
+    ///     false
+    /// });
+    /// assert!(removed.is_none());
+    /// assert_eq!(minimum, Some(1));
+    /// let removed = map.remove_where(10..20, |&x| Some(x) == minimum);
+    /// assert_eq!(removed, Some(1));
+    ///
+    /// assert_eq!(map.len(), 4);
+    /// ```
+    pub fn remove_where(&mut self, interval: Range<T>, select: impl FnMut(&V) -> bool) -> Option<V> {
+        self.find_exact_index_by(&Interval::new(&interval), select)
+            .and_then(|index| self.remove_at(index))
     }
 
     /// Returns a range of interval keys in the map, takes *O(1)*. Returns `None` if the map is empty.

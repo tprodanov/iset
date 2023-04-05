@@ -458,6 +458,24 @@ unsorted_into_iterator! {
     node -> node.value
 }
 
+fn should_go_left_exact<T, V, Ix>(nodes: &[Node<T, V, Ix>], index: Ix, query: &Interval<T>) -> bool
+where T: PartialOrd + Copy,
+      Ix: IndexType,
+{
+    let node = &nodes[index.get()];
+    let left_index = nodes[index.get()].left;
+    left_index.defined() && query <= &node.interval && nodes[left_index.get()].subtree_interval.contains(query)
+}
+
+fn should_go_right_exact<T, V, Ix>(nodes: &[Node<T, V, Ix>], index: Ix, query: &Interval<T>) -> bool
+where T: PartialOrd + Copy,
+      Ix: IndexType,
+{
+    let node = &nodes[index.get()];
+    let right_index = nodes[index.get()].right;
+    right_index.defined() && query >= &node.interval && nodes[right_index.get()].subtree_interval.contains(query)
+}
+
 fn move_to_next_exact<T, V, Ix>(
     nodes: &[Node<T, V, Ix>],
     mut index: Ix,
@@ -469,15 +487,10 @@ where T: PartialOrd + Copy,
 {
     while !stack.is_empty() && index.defined() {
         if stack.can_go_left() {
-            loop {
-                let left_index = nodes[index.get()].left;
-                if left_index.defined() && nodes[left_index.get()].subtree_interval.contains(query) {
-                    stack.go_left();
-                    stack.push();
-                    index = left_index;
-                } else {
-                    break;
-                }
+            while should_go_left_exact(nodes, index, query) {
+                stack.go_left();
+                stack.push();
+                index = nodes[index.get()].left;
             }
             stack.go_left();
         }
@@ -489,11 +502,10 @@ where T: PartialOrd + Copy,
             }
         }
 
-        let right_index = nodes[index.get()].right;
-        if stack.can_go_right() && right_index.defined() && nodes[right_index.get()].subtree_interval.contains(query) {
+        if stack.can_go_right() && should_go_right_exact(nodes, index, query) {
             stack.go_right();
             stack.push();
-            index = right_index;
+            index = nodes[index.get()].right;
         } else {
             stack.pop();
             index = nodes[index.get()].parent;

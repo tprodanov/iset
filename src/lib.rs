@@ -8,15 +8,12 @@
 //!
 //! [IntervalSet](struct.IntervalSet.html) is a newtype over [IntervalMap](struct.IntervalMap.html) with empty values.
 //!
-//! Iterators that goes over an [IntervalMap](struct.IntervalMap.html) or [IntervalSet](struct.IntervalSet.html)
-//! returns intervals/values sorted lexicographically by intervals.
-//!
-//! Optional feature `dot` allows to write interval maps and sets to .dot files
-//! (see [IntervalMap::write_dot](struct.IntervalMap.html#method.write_dot)).
-//! Additionally, this crate supports serialization/deserialization using an optional feature `serde`.
-//! Without `dot` or `serde` features, this crate supports `no_std` environments.
-//!
-//! See [IntervalMap](struct.IntervalMap.html) for more extensive documentation and examples.
+//! ## Features
+//! By default, `iset` is `no_std`.
+//! Three optional features are:
+//! - `std`: no additional effects,
+//! - `serde`: Serialization/Deserialization (requires `std` environment),
+//! - `dot`: allows to write interval maps and sets to .dot files (requires `std`).
 
 #![no_std]
 
@@ -244,7 +241,7 @@ fn check_ordered<T: PartialOrd, R: RangeBounds<T>>(range: &R) {
 /// although infinity is allowed.
 /// There are no restrictions on values.
 ///
-/// # Example.
+/// # Example
 ///```rust
 /// let mut map = iset::interval_map!{ 20..30 => 'a', 15..25 => 'b', 10..20 => 'c' };
 /// assert_eq!(map.insert(10..20, 'd'), Some('c'));
@@ -270,7 +267,7 @@ fn check_ordered<T: PartialOrd, R: RangeBounds<T>>(range: &R) {
 /// assert_eq!(map.remove(10..20), Some('d'));
 /// ```
 ///
-/// # Insertion, search and removal.
+/// # Insertion, search and removal
 ///
 /// All three operations take *O(log N)*.
 /// By default, this crate does not allow duplicate keys, [insert](#method.insert) replaces and returns the old
@@ -301,10 +298,11 @@ fn check_ordered<T: PartialOrd, R: RangeBounds<T>>(range: &R) {
 /// by the intervals in the map. Method [has_overlap](#method.has_overlap) allows to quickly find if the query overlaps
 /// any intervals in the map.
 ///
-/// # Iteration.
+/// # Iteration
 ///
 /// Interval map allows to quickly find all intervals that overlap a query interval in *O(log N + K)* where *K* is
-/// the size of the output. As a bonus, returned items are always sorted by intervals (in lexicographical order).
+/// the size of the output. All iterators traverse entries in a sorted order
+/// (sorted lexicographically by intervals).
 /// Iteration methods include:
 /// - [iter](#method.iter): iterate over pairs `(x..y, &value)`,
 /// - [intervals](#method.intervals): iterate over interval keys `x..y`,
@@ -312,19 +310,20 @@ fn check_ordered<T: PartialOrd, R: RangeBounds<T>>(range: &R) {
 /// - Mutable iterators [iter_mut](#method.iter_mut) and [values_mut](#method.values_mut),
 /// - Into iterators [into_iter](#method.into_iter), [into_intervals](#method.into_intervals) and
 /// [into_values](#method.into_values),
-/// - Iterators over values for exact matches [values_at](#method.values_at) and [values_mut_at](#method.values_mut_at).
+/// - Iterators over values with exactly matching intervals
+/// [values_at](#method.values_at) and [values_mut_at](#method.values_mut_at).
 ///
-/// Additionally, all above methods have their `unsorted_` counterparts
+/// Additionally, most methods have their `unsorted_` counterparts
 /// (for example [unsorted_iter](#method.unsorted_iter)).
-/// These iterators traverse the whole map in an arbitrary (unsorted) order.
-/// Although both `map.iter(..)` and `map.unsorted_iter()` both output all entries in the map and both take *O(N)*,
+/// These iterators traverse the whole map in an arbitrary *unsorted* order.
+/// Although both `map.iter(..)` and `map.unsorted_iter()` output all entries in the map and both take *O(N)*,
 /// unsorted iterator is slightly faster as it reads the memory consecutively instead of traversing the tree.
 ///
 /// Methods `iter`, `intervals`, `values`, `iter_mut` and `values_mut` have alternatives [overlap](#method.overlap),
 /// [overlap_intervals](#method.overlap_intervals), ..., that allow to iterate over all entries that
 /// cover a single point `x` (same as `x..=x`).
 ///
-/// # Index types.
+/// # Index types
 ///
 /// Every node in the tree stores three indices (to the parent and two children), and as a result, memory usage can be
 /// reduced by reducing index sizes. In most cases, number of items in the map does not exceed `u32::MAX`, therefore
@@ -335,7 +334,7 @@ fn check_ordered<T: PartialOrd, R: RangeBounds<T>>(range: &R) {
 ///
 /// Using smaller index types saves memory and may reduce running time.
 ///
-/// # Interval map creation.
+/// # Interval map creation
 ///
 /// An interval map can be created using the following methods:
 /// ```rust
@@ -369,7 +368,7 @@ fn check_ordered<T: PartialOrd, R: RangeBounds<T>>(range: &R) {
 /// let map: IntervalMap<_, _> = vec.into_iter().collect();
 /// ```
 ///
-/// # Implementation, merge and split.
+/// # Implementation, merge and split
 ///
 /// To allow for fast retrieval of all intervals overlapping a query, we store the range of the subtree in each node
 /// of the tree. Additionally, each node stores indices to the parent and to two children.
@@ -830,7 +829,7 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
     /// After `predicate` returns `true`, it is not invoked again.
     /// Returns the value of the removed entry, if present, and None otherwise.
     ///
-    /// Can take up to *O(N)* in the worst case.
+    /// Takes *O(log N + K)* where *K* is the number of entries with `interval`.
     ///
     /// Panics if `interval` is empty (`start >= end`) or contains a value that cannot be compared (such as `NAN`).
     ///
@@ -1153,7 +1152,7 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
     }
 
     /// Iterates over all values (`&V`) with intervals that match `query` exactly.
-    /// Takes *O(N)* in the worst case.
+    /// Takes *O(log N + K)* where *K* is the size of the output.
     pub fn values_at<'a>(&'a self, query: Range<T>) -> ValuesExact<'a, T, V, Ix> {
         ValuesExact::new(self, Interval::new(&query))
     }

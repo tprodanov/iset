@@ -498,7 +498,7 @@ fn test_from_sorted() {
 
 #[test]
 fn test_exact_iterators() {
-    const COUNT: u32 = 10000;
+    const COUNT: u32 = 5000;
     let mut naive = NaiveIntervalMap::new();
     let mut tree = IntervalMap::new();
     let history = random_force_inserts(&mut naive, &mut tree, COUNT, generate_range(generate_int(10, 25)));

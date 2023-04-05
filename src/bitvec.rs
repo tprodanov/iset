@@ -48,6 +48,11 @@ impl BitVec {
     }
 
     #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    #[inline]
     pub fn shrink_to_fit(&mut self) {
         self.data.shrink_to_fit()
     }
@@ -66,7 +71,7 @@ impl BitVec {
     }
 
     #[inline]
-    pub fn get_end(&self, i: usize) -> bool {
+    pub fn get_tail(&self, i: usize) -> bool {
         self.get(self.len - 1 - i)
     }
 

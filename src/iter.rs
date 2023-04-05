@@ -5,7 +5,7 @@ use core::ops::{Range, RangeBounds, Bound};
 use core::iter::FusedIterator;
 use core::mem;
 
-use super::{IntervalMap, Node, IndexType, check_ordered, BitVec};
+use super::{Interval, IntervalMap, Node, IndexType, check_ordered, BitVec};
 
 fn should_go_left<T, V, Ix>(nodes: &[Node<T, V, Ix>], index: Ix, start_bound: Bound<&T>) -> bool
 where T: PartialOrd + Copy,
@@ -57,7 +57,7 @@ impl ActionStack {
 
     #[inline]
     fn can_go_left(&self) -> bool {
-        !self.0.get_end(1) && !self.0.get_end(0)
+        !self.0.get_tail(1) && !self.0.get_tail(0)
     }
 
     #[inline]
@@ -67,7 +67,7 @@ impl ActionStack {
 
     #[inline]
     fn can_match(&self) -> bool {
-        !self.0.get_end(1)
+        !self.0.get_tail(1)
     }
 
     #[inline]
@@ -78,7 +78,7 @@ impl ActionStack {
 
     #[inline]
     fn can_go_right(&self) -> bool {
-        !self.0.get_end(0)
+        !self.0.get_tail(0)
     }
 
     #[inline]
@@ -91,6 +91,11 @@ impl ActionStack {
     fn pop(&mut self) {
         self.0.pop();
         self.0.pop();
+    }
+
+    #[inline]
+    fn is_empty(&self) -> bool {
+        self.0.is_empty()
     }
 }
 
@@ -164,11 +169,11 @@ macro_rules! iterator {
 
             fn next(&mut self) -> Option<Self::Item> {
                 self.index = move_to_next(self.nodes, self.index, &self.range, &mut self.stack);
-                if !self.index.defined() {
-                    None
-                } else {
+                if self.index.defined() {
                     let $node = & $( $mut_ )? self.nodes[self.index.get()];
                     Some($out)
+                } else {
+                    None
                 }
             }
 
@@ -253,11 +258,11 @@ macro_rules! into_iterator {
 
             fn next(&mut self) -> Option<Self::Item> {
                 self.index = move_to_next(&self.nodes, self.index, &self.range, &mut self.stack);
-                if !self.index.defined() {
-                    None
-                } else {
+                if self.index.defined() {
                     let $node = &mut self.nodes[self.index.get()];
                     Some($out)
+                } else {
+                    None
                 }
             }
 
@@ -451,4 +456,114 @@ unsorted_into_iterator! {
     #[derive(Debug)]
     struct UnsIntoValues -> V,
     node -> node.value
+}
+
+fn move_to_next_exact<T, V, Ix>(
+    nodes: &[Node<T, V, Ix>],
+    mut index: Ix,
+    query: &Interval<T>,
+    stack: &mut ActionStack
+) -> Ix
+where T: PartialOrd + Copy,
+      Ix: IndexType,
+{
+    while !stack.is_empty() && index.defined() {
+        if stack.can_go_left() {
+            loop {
+                let left_index = nodes[index.get()].left;
+                if left_index.defined() && nodes[left_index.get()].subtree_interval.contains(query) {
+                    stack.go_left();
+                    stack.push();
+                    index = left_index;
+                } else {
+                    break;
+                }
+            }
+            stack.go_left();
+        }
+
+        if stack.can_match() {
+            stack.make_match();
+            if query == &nodes[index.get()].interval {
+                return index;
+            }
+        }
+
+        let right_index = nodes[index.get()].right;
+        if stack.can_go_right() && right_index.defined() && nodes[right_index.get()].subtree_interval.contains(query) {
+            stack.go_right();
+            stack.push();
+            index = right_index;
+        } else {
+            stack.pop();
+            index = nodes[index.get()].parent;
+        }
+    }
+    Ix::MAX
+}
+
+/// Macro that generates iterator over exactly matching intervals in the IntervalMap.
+macro_rules! iterator_exact {
+    (
+        $(#[$outer:meta])*
+        struct $name:ident -> $elem:ty,
+        $node:ident -> $out:expr, {$( $mut_:tt )?}
+    ) => {
+        $(#[$outer])*
+        pub struct $name<'a, T, V, Ix>
+        where T: PartialOrd + Copy,
+              Ix: IndexType,
+        {
+            pub(crate) index: Ix,
+            query: Interval<T>,
+            nodes: &'a $( $mut_ )? [Node<T, V, Ix>],
+            stack: ActionStack,
+        }
+
+        impl<'a, T: PartialOrd + Copy, V, Ix: IndexType> $name<'a, T, V, Ix> {
+            pub(crate) fn new(tree: &'a $( $mut_ )? IntervalMap<T, V, Ix>, query: Interval<T>) -> Self {
+                Self {
+                    index: tree.find_index(&query),
+                    query,
+                    nodes: & $( $mut_ )? tree.nodes,
+                    stack: ActionStack::new(),
+                }
+            }
+        }
+
+        impl<'a, T: PartialOrd + Copy, V, Ix: IndexType> Iterator for $name<'a, T, V, Ix> {
+            type Item = $elem;
+
+            fn next(&mut self) -> Option<Self::Item> {
+                self.index = move_to_next_exact(self.nodes, self.index, &self.query, &mut self.stack);
+                if self.index.defined() {
+                    let $node = & $( $mut_ )? self.nodes[self.index.get()];
+                    Some($out)
+                } else {
+                    None
+                }
+            }
+
+            fn size_hint(& self) -> (usize, Option<usize>) {
+                // Not optimal implementation, basically, always returns lower bound = 0, upper bound = map.len().
+                (0, Some(self.nodes.len()))
+            }
+        }
+
+        impl<'a, T: PartialOrd + Copy, V, Ix: IndexType> FusedIterator for $name<'a, T, V, Ix> { }
+    };
+}
+
+iterator_exact! {
+    #[doc="Iterator over values `&V` for exact matches with the query."]
+    #[derive(Clone, Debug)]
+    struct ValuesExact -> &'a V,
+    node -> &node.value, { /* no mut */ }
+}
+
+iterator_exact! {
+    #[doc="Iterator over mutable values `&mut V` for exact matches with the query."]
+    #[derive(Debug)]
+    struct ValuesExactMut -> &'a mut V,
+    node -> unsafe { &mut *(&mut node.value as *mut V) }, { mut }
 }

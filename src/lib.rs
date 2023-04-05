@@ -30,7 +30,7 @@ pub mod set;
 mod tree_rm;
 mod bitvec;
 
-#[cfg(test)]
+#[cfg(all(test, feature = "std"))]
 mod tests;
 
 use alloc::vec::Vec;
@@ -308,7 +308,8 @@ fn check_ordered<T: PartialOrd, R: RangeBounds<T>>(range: &R) {
 /// - [values](#method.values): iterate over values `&value`,
 /// - Mutable iterators [iter_mut](#method.iter_mut) and [values_mut](#method.values_mut),
 /// - Into iterators [into_iter](#method.into_iter), [into_intervals](#method.into_intervals) and
-/// [into_values](#method.into_values).
+/// [into_values](#method.into_values),
+/// - Iterators over values for exact matches [values_at](#method.values_at) and [values_mut_at](#method.values_mut_at).
 ///
 /// Additionally, all above methods have their `unsorted_` counterparts
 /// (for example [unsorted_iter](#method.unsorted_iter)).
@@ -763,11 +764,11 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
     /// ```
     #[inline]
     pub fn force_insert(&mut self, interval: Range<T>, value: V) {
+        // Cannot be replaced with debug_assert.
         assert!(self.insert_inner(interval, value, false).is_none(), "Force insert should always return None");
     }
 
-    fn find_index(&self, interval: &Range<T>) -> Ix {
-        let interval = Interval::new(interval);
+    fn find_index(&self, interval: &Interval<T>) -> Ix {
         let mut index = self.root;
         while index.defined() {
             let node = &self.nodes[index.get()];
@@ -784,7 +785,7 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
     ///
     /// Panics if `interval` is empty (`start >= end`) or contains a value that cannot be compared (such as `NAN`).
     pub fn contains(&self, interval: Range<T>) -> bool {
-        self.find_index(&interval).defined()
+        self.find_index(&Interval::new(&interval)).defined()
     }
 
     /// Returns value associated with `interval` (exact match).
@@ -792,7 +793,7 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
     ///
     /// Panics if `interval` is empty (`start >= end`) or contains a value that cannot be compared (such as `NAN`).
     pub fn get(&self, interval: Range<T>) -> Option<&V> {
-        let index = self.find_index(&interval);
+        let index = self.find_index(&Interval::new(&interval));
         if index.defined() {
             Some(&self.nodes[index.get()].value)
         } else {
@@ -805,7 +806,7 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
     ///
     /// Panics if `interval` is empty (`start >= end`) or contains a value that cannot be compared (such as `NAN`).
     pub fn get_mut(&mut self, interval: Range<T>) -> Option<&mut V> {
-        let index = self.find_index(&interval);
+        let index = self.find_index(&Interval::new(&interval));
         if index.defined() {
             Some(&mut self.nodes[index.get()].value)
         } else {
@@ -818,49 +819,21 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
     ///
     /// Panics if `interval` is empty (`start >= end`) or contains a value that cannot be compared (such as `NAN`).
     pub fn remove(&mut self, interval: Range<T>) -> Option<V> {
-        self.remove_at(self.find_index(&interval))
-    }
-
-    /// Finds any node where the interval is exactly equal to `query`, and where `select(value)` returns true.
-    fn find_exact_index_by(&self, query: &Interval<T>, mut select: impl FnMut(&V) -> bool) -> Option<Ix> {
-        if !self.root.defined() {
-            return None;
-        }
-        let mut queue = Vec::new();
-        queue.push(self.root);
-
-        while let Some(index) = queue.pop() {
-            let node = &self.nodes[index.get()];
-            if query == &node.interval && select(&node.value) {
-                return Some(index);
-            }
-            if node.subtree_interval.contains(query) {
-                if node.left.defined() {
-                    queue.push(node.left);
-                }
-                if node.left.defined() {
-                    queue.push(node.left);
-                }
-            }
-        }
-        None
+        self.remove_at(self.find_index(&Interval::new(&interval)))
     }
 
     /// Removes an entry, associated with `interval` (exact match is required),
-    /// where `select(&value)` returns true.
-    /// After `select` returns `true`, it is not invoked again.
+    /// where `predicate(&value)` returns true.
+    /// After `predicate` returns `true`, it is not invoked again.
     /// Returns the value of the removed entry, if present, and None otherwise.
     ///
-    /// Takes *O(N)* in the worst case (all intervals are equal).
+    /// Can take up to *O(N)* in the worst case.
     ///
     /// Panics if `interval` is empty (`start >= end`) or contains a value that cannot be compared (such as `NAN`).
     ///
     /// # Examples
-    /// ```
-    /// use iset::IntervalMap;
-    /// use core::cmp::min;
-    ///
-    /// let mut map = IntervalMap::new();
+    /// ```rust
+    /// let mut map = iset::IntervalMap::new();
     /// map.force_insert(5..15, 0);
     /// map.force_insert(10..20, 1);
     /// map.force_insert(10..20, 2);
@@ -873,21 +846,20 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
     /// assert!(removed == Some(2) || removed == Some(4));
     ///
     /// // Remove the entry with the minimum value
-    /// let mut minimum = None;
-    /// let removed = map.remove_where(10..20, |&x| {
-    ///     minimum = minimum.map(|y| min(x, y)).or(Some(x));
-    ///     false
-    /// });
-    /// assert!(removed.is_none());
-    /// assert_eq!(minimum, Some(1));
-    /// let removed = map.remove_where(10..20, |&x| Some(x) == minimum);
+    /// let minimum = map.values_at(10..20).cloned().min().unwrap();
+    /// assert_eq!(minimum, 1);
+    /// let removed = map.remove_where(10..20, |&x| x == minimum);
     /// assert_eq!(removed, Some(1));
-    ///
     /// assert_eq!(map.len(), 4);
     /// ```
-    pub fn remove_where(&mut self, interval: Range<T>, select: impl FnMut(&V) -> bool) -> Option<V> {
-        self.find_exact_index_by(&Interval::new(&interval), select)
-            .and_then(|index| self.remove_at(index))
+    pub fn remove_where(&mut self, interval: Range<T>, mut predicate: impl FnMut(&V) -> bool) -> Option<V> {
+        let mut values_it = self.values_at(interval);
+        while let Some(val) = values_it.next() {
+            if predicate(val) {
+                return self.remove_at(values_it.index);
+            }
+        }
+        None
     }
 
     /// Returns a range of interval keys in the map, takes *O(1)*. Returns `None` if the map is empty.
@@ -1175,6 +1147,17 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
     #[inline]
     pub fn values_overlap_mut<'a>(&'a mut self, point: T) -> ValuesMut<'a, T, V, RangeInclusive<T>, Ix> {
         ValuesMut::new(self, point..=point)
+    }
+
+    /// Iterates over all values (`&V`) with intervals that match `query` exactly.
+    /// Takes *O(N)* in the worst case.
+    pub fn values_at<'a>(&'a self, query: Range<T>) -> ValuesExact<'a, T, V, Ix> {
+        ValuesExact::new(self, Interval::new(&query))
+    }
+
+    /// Iterates over all mutable values (`&mut V`) with intervals that match `query` exactly.
+    pub fn values_mut_at<'a>(&'a mut self, query: Range<T>) -> ValuesExactMut<'a, T, V, Ix> {
+        ValuesExactMut::new(self, Interval::new(&query))
     }
 
     /// Creates an unsorted iterator over all pairs `(x..y, &value)`.

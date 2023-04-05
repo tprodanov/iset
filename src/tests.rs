@@ -1,4 +1,5 @@
 use std::{
+    println,
     string::String,
     ops::{self, Range, RangeBounds, Bound},
     fmt::{Debug, Write},
@@ -189,8 +190,12 @@ fn generate_ordered_pair<T: PartialOrd + Copy, F: FnMut() -> T>(generator: &mut 
     }
 }
 
-fn modify_maps<T, F>(naive: &mut NaiveIntervalMap<T, u32>, tree: &mut IntervalMap<T, u32>, n_inserts: u32,
-        mut generator: F) -> String
+fn random_inserts<T, F>(
+    naive: &mut NaiveIntervalMap<T, u32>,
+    tree: &mut IntervalMap<T, u32>,
+    n_inserts: u32,
+    mut generator: F,
+) -> String
 where T: PartialOrd + Copy + Debug,
       F: FnMut() -> Range<T>,
 {
@@ -204,6 +209,25 @@ where T: PartialOrd + Copy + Debug,
             assert_eq!(naive.nodes[i].1, value);
             naive.nodes.swap_remove(i);
         }
+    }
+    history
+}
+
+fn random_force_inserts<T, F>(
+    naive: &mut NaiveIntervalMap<T, u32>,
+    tree: &mut IntervalMap<T, u32>,
+    n_inserts: u32,
+    mut generator: F,
+) -> String
+where T: PartialOrd + Copy + Debug,
+      F: FnMut() -> Range<T>,
+{
+    let mut history = String::new();
+    for i in 0..n_inserts {
+        let range = generator();
+        writeln!(history, "insert({:?})", range).unwrap();
+        naive.insert(range.clone(), i);
+        tree.force_insert(range, i);
     }
     history
 }
@@ -317,35 +341,46 @@ where T: PartialOrd + Copy + Debug
     }
 }
 
-fn compare_match_results<T>(naive: &NaiveIntervalMap<T, u32>, tree: &IntervalMap<T, u32>, history: &str, range: Range<T>)
-where T: PartialOrd + Copy + Clone + Debug
+fn compare_match_results<T, G>(
+    naive: &NaiveIntervalMap<T, u32>,
+    tree: &IntervalMap<T, u32>,
+    history: &str,
+    range: Range<T>,
+    getter: &mut G,
+)
+where T: PartialOrd + Copy + Clone + Debug,
+      G: FnMut(&IntervalMap<T, u32>, Range<T>) -> Vec<u32>,
 {
-    let values: Vec<u32> = naive.all_matching(range.clone()).map(|v| *v).collect();
-    let mut correct = true;
-    correct &= values.is_empty() != tree.contains(range.clone());
-    correct &= match tree.get(range.clone()) {
-        Some(value) => values.contains(&value),
-        None => values.is_empty(),
-    };
-    if !correct {
-        println!("Range: {:?},   values: {:?},   tree.get: {:?}", range, values, tree.get(range.clone()));
+    let mut naive_vals: Vec<_> = naive.all_matching(range.clone()).map(|v| *v).collect();
+    let mut tree_vals = getter(tree, range.clone());
+    naive_vals.sort_unstable();
+    tree_vals.sort_unstable();
+
+    if naive_vals != tree_vals {
+        println!("Range: {:?},   naive: {:?},   tree: {:?}", range, naive_vals, tree_vals);
         println!("{}", history);
         println!();
         panic!();
     }
 }
 
-fn compare_exact_matching<T, F>(naive: &NaiveIntervalMap<T, u32>, tree: &IntervalMap<T, u32>, history: &str,
-    mut generator: F)
+fn compare_exact_matching<T, F, G>(
+    naive: &NaiveIntervalMap<T, u32>,
+    tree: &IntervalMap<T, u32>,
+    history: &str,
+    mut generator: F,
+    mut getter: G,
+)
 where T: PartialOrd + Copy + Debug,
       F: FnMut() -> Range<T>,
+      G: FnMut(&IntervalMap<T, u32>, Range<T>) -> Vec<u32>,
 {
     for (range, _value) in &naive.nodes {
-        compare_match_results(naive, tree, history, range.clone());
+        compare_match_results(naive, tree, history, range.clone(), &mut getter);
     }
 
     for _ in 0..naive.nodes.len() {
-        compare_match_results(naive, tree, history, generator());
+        compare_match_results(naive, tree, history, generator(), &mut getter);
     }
 }
 
@@ -392,13 +427,14 @@ fn test_int_inserts() {
     const COUNT: u32 = 1000;
     let mut naive = NaiveIntervalMap::new();
     let mut tree = IntervalMap::new();
-    let history = modify_maps(&mut naive, &mut tree, COUNT, generate_range(generate_int(20, 120)));
+    let history = random_inserts(&mut naive, &mut tree, COUNT, generate_range(generate_int(20, 120)));
 
     validate(&tree, naive.len());
     compare_extremums(&naive, &tree, &history);
 
     let mut generator = generate_int(0, 140);
-    compare_exact_matching(&naive, &tree, &history, generate_range(&mut generator));
+    compare_exact_matching(&naive, &tree, &history,
+        generate_range(&mut generator), |tree, range| tree.get(range).into_iter().cloned().collect());
     search_rand(&mut naive, &mut tree, COUNT, generate_range(&mut generator), &history);
     search_rand(&mut naive, &mut tree, COUNT, generate_range_from(&mut generator), &history);
     search_rand(&mut naive, &mut tree, 1, generate_range_full, &history);
@@ -412,7 +448,7 @@ fn test_covered_len() {
     const COUNT: u32 = 1000;
     let mut naive = NaiveIntervalMap::new();
     let mut tree = IntervalMap::new();
-    let history = modify_maps(&mut naive, &mut tree, COUNT, generate_range(generate_int(-500, 500)));
+    let history = random_inserts(&mut naive, &mut tree, COUNT, generate_range(generate_int(-500, 500)));
     validate(&tree, naive.len());
 
     let mut generator = generate_int(-510, 510);
@@ -429,7 +465,7 @@ fn test_float_inserts() {
     const COUNT: u32 = 1000;
     let mut naive = NaiveIntervalMap::new();
     let mut tree = IntervalMap::new();
-    let history = modify_maps(&mut naive, &mut tree, COUNT, generate_range(generate_float(0.0, 1000.0)));
+    let history = random_inserts(&mut naive, &mut tree, COUNT, generate_range(generate_float(0.0, 1000.0)));
 
     validate(&tree, naive.len());
     compare_extremums(&naive, &tree, &history);
@@ -446,20 +482,31 @@ fn test_float_inserts() {
 #[test]
 fn test_from_sorted() {
     const COUNT: u32 = 1000;
-    let mut vec = Vec::new();
-    let mut map: IntervalMap<_, _, u32> = IntervalMap::from_sorted(vec.clone().into_iter());
+    let mut map: IntervalMap<_, _, u32> = IntervalMap::from_sorted(std::iter::empty());
     validate(&map, 0);
 
+    let mut vec = Vec::new();
     for i in 0..COUNT {
         vec.push((i..i+1, i));
         map = IntervalMap::from_sorted(vec.clone().into_iter());
-        assert_eq!(map.len(), vec.len());
         validate(&map, vec.len());
     }
-
     for (range, value) in vec {
         assert_eq!(map.get(range), Some(&value));
     }
+}
+
+#[test]
+fn test_exact_iterators() {
+    const COUNT: u32 = 10000;
+    let mut naive = NaiveIntervalMap::new();
+    let mut tree = IntervalMap::new();
+    let history = random_force_inserts(&mut naive, &mut tree, COUNT, generate_range(generate_int(10, 25)));
+    validate(&tree, COUNT as usize);
+
+    compare_exact_matching(&naive, &tree, &history,
+        generate_range(generate_int(5, 30)),
+        |tree, range| tree.values_at(range).cloned().collect());
 }
 
 #[cfg(feature = "serde")]
@@ -468,7 +515,7 @@ fn test_serde() {
     const COUNT: u32 = 1000;
     let mut naive = NaiveIntervalMap::new();
     let mut tree: IntervalMap<i32, u32> = IntervalMap::new();
-    let history = modify_maps(&mut naive, &mut tree, COUNT, generate_range(generate_int(0, 10000)));
+    let history = random_inserts(&mut naive, &mut tree, COUNT, generate_range(generate_int(0, 10000)));
 
     let json_path = Path::new("tests/data/serde.json");
     let folders = json_path.parent().unwrap();

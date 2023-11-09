@@ -1,61 +1,61 @@
 //! `IntervalSet` implementation.
 
 use core::{
-    ops::{Range, RangeInclusive, RangeBounds, RangeFull, AddAssign, Sub},
     fmt::{self, Debug, Formatter},
     iter::{FromIterator, IntoIterator},
+    ops::{AddAssign, RangeBounds, RangeFull, RangeInclusive, Sub},
 };
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 #[cfg(feature = "dot")]
 use std::io::{self, Write};
-#[cfg(feature = "serde")]
-use serde::{Serialize, Serializer, Deserialize, Deserializer};
 
-use super::IntervalMap;
-use super::ix::{IndexType, DefaultIx};
 use super::iter::*;
+use super::ix::{DefaultIx, IndexType};
+use super::IntervalMap;
 
-/// Set with interval keys (ranges `x..y`). Newtype over `IntervalMap<T, ()>`.
-/// See [IntervalMap](../struct.IntervalMap.html) for more information.
+/// Set with interval keys (ranges `x..=y`). Newtype over `IntervalMap<T, ()>`.
+/// See [IntervalMap](..=/struct.IntervalMap.html) for more information.
 ///
 /// ```rust
 /// use iset::interval_set;
-/// let mut set = interval_set!{ 0.4..1.5, 0.1..0.5, 5.0..7.0 };
-/// assert!(set.insert(-1.0..0.2));
+/// let mut set = interval_set!{ 0.4..=1.5, 0.1..=0.5, 5.0..=7.0 };
+/// assert!(set.insert(-1.0..=0.2));
 /// // false because the interval is already in the set.
-/// assert!(!set.insert(0.1..0.5));
+/// assert!(!set.insert(0.1..=0.5));
 ///
-/// assert!(set.contains(5.0..7.0));
-/// assert!(set.remove(5.0..7.0));
+/// assert!(set.contains(5.0..=7.0));
+/// assert!(set.remove(5.0..=7.0));
 ///
-/// // Iterate over intervals that overlap `0.2..0.8`.
-/// let a: Vec<_> = set.iter(0.2..0.8).collect();
-/// assert_eq!(a, &[0.1..0.5, 0.4..1.5]);
+/// // Iterate over intervals that overlap `0.2..=0.8`.
+/// let a: Vec<_> = set.iter(0.2..=0.8).collect();
+/// assert_eq!(a, &[0.1..=0.5, 0.4..=1.5]);
 ///
 /// // Iterate over intervals that overlap a point 0.5.
 /// let b: Vec<_> = set.overlap(0.5).collect();
-/// assert_eq!(b, &[0.4..1.5]);
+/// assert_eq!(b, &[0.4..=1.5]);
 ///
 /// // Will panic:
-/// // set.insert(0.0..core::f64::NAN);
+/// // set.insert(0.0..=core::f64::NAN);
 /// // set.overlap(core::f64::NAN);
 ///
 /// // It is still possible to use infinity.
 /// const INF: f64 = core::f64::INFINITY;
-/// set.insert(0.0..INF);
+/// set.insert(0.0..=INF);
 /// let c: Vec<_> = set.overlap(0.5).collect();
-/// assert_eq!(c, &[0.0..INF, 0.4..1.5]);
+/// assert_eq!(c, &[0.0..=INF, 0.4..=1.5]);
 ///
 /// println!("{:?}", set);
-/// // {-1.0..0.2, 0.0..inf, 0.1..0.5, 0.4..1.5}
-/// assert_eq!(set.range().unwrap(), -1.0..INF);
-/// assert_eq!(set.smallest().unwrap(), -1.0..0.2);
-/// assert_eq!(set.largest().unwrap(), 0.4..1.5);
+/// // {-1.0..=0.2, 0.0..=inf, 0.1..=0.5, 0.4..=1.5}
+/// assert_eq!(set.range().unwrap(), -1.0..=INF);
+/// assert_eq!(set.smallest().unwrap(), -1.0..=0.2);
+/// assert_eq!(set.largest().unwrap(), 0.4..=1.5);
 /// ```
 ///
 /// There are no mutable iterators over [IntervalSet](struct.IntervalSet.html) as keys should be immutable.
 ///
-/// In contrast to the [IntervalMap](../struct.IntervalMap.html), `IntervalSet` does not have a
-/// [force_insert](../struct.IntervalMap.html#method.force_insert), and completely forbids duplicate intervals.
+/// In contrast to the [IntervalMap](..=/struct.IntervalMap.html), `IntervalSet` does not have a
+/// [force_insert](..=/struct.IntervalMap.html#method.force_insert), and completely forbids duplicate intervals.
 #[derive(Clone)]
 pub struct IntervalSet<T, Ix: IndexType = DefaultIx> {
     inner: IntervalMap<T, (), Ix>,
@@ -63,7 +63,7 @@ pub struct IntervalSet<T, Ix: IndexType = DefaultIx> {
 
 impl<T: PartialOrd + Copy> IntervalSet<T> {
     /// Creates an empty [IntervalSet](struct.IntervalSet.html)
-    /// with default index type [DefaultIx](../ix/type.DefaultIx.html).
+    /// with default index type [DefaultIx](..=/ix/type.DefaultIx.html).
     pub fn new() -> Self {
         Self::default()
     }
@@ -89,7 +89,8 @@ impl<T: PartialOrd + Copy, Ix: IndexType> IntervalSet<T, Ix> {
     ///
     /// Panics if the intervals are not sorted or if there are equal intervals.
     pub fn from_sorted<I>(iter: I) -> Self
-    where I: Iterator<Item = Range<T>>,
+    where
+        I: Iterator<Item = RangeInclusive<T>>,
     {
         Self {
             inner: IntervalMap::from_sorted(iter.map(|range| (range, ()))),
@@ -120,25 +121,25 @@ impl<T: PartialOrd + Copy, Ix: IndexType> IntervalSet<T, Ix> {
         self.inner.shrink_to_fit()
     }
 
-    /// Inserts an interval `x..y` to the set. If the set did not have this interval present, true is returned.
+    /// Inserts an interval `x..=y` to the set. If the set did not have this interval present, true is returned.
     /// Takes *O(log N)*.
     ///
     /// Panics if `interval` is empty (`start >= end`) or contains a value that cannot be compared (such as `NAN`).
-    pub fn insert(&mut self, interval: Range<T>) -> bool {
+    pub fn insert(&mut self, interval: RangeInclusive<T>) -> bool {
         self.inner.insert(interval, ()).is_none()
     }
 
     /// Check if the interval set contains `interval` (exact match). Takes *O(log N)*.
     ///
     /// Panics if `interval` is empty (`start >= end`) or contains a value that cannot be compared (such as `NAN`).
-    pub fn contains(&self, interval: Range<T>) -> bool {
+    pub fn contains(&self, interval: RangeInclusive<T>) -> bool {
         self.inner.contains(interval)
     }
 
     /// Removes the interval from the set. Returns true if the interval was present in the set. Takes *O(log N)*.
     ///
     /// Panics if `interval` is empty (`start >= end`) or contains a value that cannot be compared (such as `NAN`).
-    pub fn remove(&mut self, interval: Range<T>) -> bool {
+    pub fn remove(&mut self, interval: RangeInclusive<T>) -> bool {
         self.inner.remove(interval).is_some()
     }
 
@@ -146,31 +147,31 @@ impl<T: PartialOrd + Copy, Ix: IndexType> IntervalSet<T, Ix> {
     /// `out.start` is the minimal start of all intervals in the set,
     /// and `out.end` is the maximal end of all intervals in the set.
     #[inline]
-    pub fn range(&self) -> Option<Range<T>> {
+    pub fn range(&self) -> Option<RangeInclusive<T>> {
         self.inner.range()
     }
 
     /// Returns the smallest interval in the set (in lexicographical order).
     /// Takes *O(log N)*. Returns `None` if the set is empty.
-    pub fn smallest(&self) -> Option<Range<T>> {
+    pub fn smallest(&self) -> Option<RangeInclusive<T>> {
         self.inner.smallest().map(|(interval, _)| interval)
     }
 
     /// Removes and returns the smallest interval in the set (in lexicographical order).
     /// Takes *O(log N)*. Returns `None` if the set is empty.
-    pub fn remove_smallest(&mut self) -> Option<Range<T>> {
+    pub fn remove_smallest(&mut self) -> Option<RangeInclusive<T>> {
         self.inner.remove_smallest().map(|(interval, _)| interval)
     }
 
     /// Returns the largest interval in the set (in lexicographical order).
     /// Takes *O(log N)*. Returns `None` if the set is empty.
-    pub fn largest(&self) -> Option<Range<T>> {
+    pub fn largest(&self) -> Option<RangeInclusive<T>> {
         self.inner.largest().map(|(interval, _)| interval)
     }
 
     /// Removes and returns the largest interval in the set (in lexicographical order).
     /// Takes *O(log N)*. Returns `None` if the set is empty.
-    pub fn remove_largest(&mut self) -> Option<Range<T>> {
+    pub fn remove_largest(&mut self) -> Option<RangeInclusive<T>> {
         self.inner.remove_largest().map(|(interval, _)| interval)
     }
 
@@ -178,42 +179,46 @@ impl<T: PartialOrd + Copy, Ix: IndexType> IntervalSet<T, Ix> {
     /// Equivalent to `set.iter(query).next().is_some()`, but much faster.
     #[inline]
     pub fn has_overlap<R>(&self, query: R) -> bool
-    where R: RangeBounds<T>, {
+    where
+        R: RangeBounds<T>,
+    {
         self.inner.has_overlap(query)
     }
 
-    /// Iterates over intervals `x..y` that overlap the `query`.
+    /// Iterates over intervals `x..=y` that overlap the `query`.
     /// Takes *O(log N + K)* where *K* is the size of the output.
     /// Output is sorted by intervals.
     ///
     /// Panics if `interval` is empty or contains a value that cannot be compared (such as `NAN`).
-    pub fn iter<'a, R>(&'a self, query: R) -> Intervals<'a, T, (), R, Ix>
-    where R: RangeBounds<T>,
+    pub fn iter<R>(&self, query: R) -> Intervals<'_, T, (), R, Ix>
+    where
+        R: RangeBounds<T>,
     {
         self.inner.intervals(query)
     }
 
-    /// Iterates over intervals `x..y` that overlap the `point`. Same as `iter(point..=point)`.
+    /// Iterates over intervals `x..=y` that overlap the `point`. Same as `iter(point..==point)`.
     /// See [iter](#method.iter) for more details.
-    pub fn overlap<'a>(&'a self, point: T) -> Intervals<'a, T, (), RangeInclusive<T>, Ix> {
+    pub fn overlap(&self, point: T) -> Intervals<'_, T, (), RangeInclusive<T>, Ix> {
         self.inner.intervals(point..=point)
     }
 
-    /// Consumes [IntervalSet](struct.IntervalSet.html) and iterates over intervals `x..y` that overlap the `query`.
+    /// Consumes [IntervalSet](struct.IntervalSet.html) and iterates over intervals `x..=y` that overlap the `query`.
     /// See [iter](#method.iter) for more details.
     pub fn into_iter<R>(self, query: R) -> IntoIntervals<T, (), R, Ix>
-    where R: RangeBounds<T>,
+    where
+        R: RangeBounds<T>,
     {
         IntoIntervals::new(self.inner, query)
     }
 
-    /// Creates an unsorted iterator over all intervals `x..y`.
+    /// Creates an unsorted iterator over all intervals `x..=y`.
     /// Slightly faster than the sorted iterator, although both take *O(N)*.
-    pub fn unsorted_iter<'a>(&'a self) -> UnsIntervals<'a, T, (), Ix> {
+    pub fn unsorted_iter(&self) -> UnsIntervals<'_, T, (), Ix> {
         UnsIntervals::new(&self.inner)
     }
 
-    /// Consumes `IntervalSet` and creates an unsorted iterator over all intervals `x..y`.
+    /// Consumes `IntervalSet` and creates an unsorted iterator over all intervals `x..=y`.
     pub fn unsorted_into_iter(self) -> UnsIntoIntervals<T, (), Ix> {
         UnsIntoIntervals::new(self.inner)
     }
@@ -221,16 +226,16 @@ impl<T: PartialOrd + Copy, Ix: IndexType> IntervalSet<T, Ix> {
 
 impl<T: PartialOrd + Copy, Ix: IndexType> IntoIterator for IntervalSet<T, Ix> {
     type IntoIter = IntoIntervals<T, (), RangeFull, Ix>;
-    type Item = Range<T>;
+    type Item = RangeInclusive<T>;
 
     fn into_iter(self) -> Self::IntoIter {
         IntoIntervals::new(self.inner, ..)
     }
 }
 
-/// Construct [IntervalSet](struct.IntervalSet.html) from ranges `x..y`.
-impl<T: PartialOrd + Copy> FromIterator<Range<T>> for IntervalSet<T> {
-    fn from_iter<I: IntoIterator<Item = Range<T>>>(iter: I) -> Self {
+/// Construct [IntervalSet](struct.IntervalSet.html) from ranges `x..=y`.
+impl<T: PartialOrd + Copy> FromIterator<RangeInclusive<T>> for IntervalSet<T> {
+    fn from_iter<I: IntoIterator<Item = RangeInclusive<T>>>(iter: I) -> Self {
         let mut set = IntervalSet::new();
         for range in iter {
             set.insert(range);
@@ -240,16 +245,18 @@ impl<T: PartialOrd + Copy> FromIterator<Range<T>> for IntervalSet<T> {
 }
 
 impl<T, Ix> IntervalSet<T, Ix>
-where T: PartialOrd + Copy + Default + AddAssign + Sub<Output = T>,
-      Ix: IndexType,
+where
+    T: PartialOrd + Copy + Default + AddAssign + Sub<Output = T>,
+    Ix: IndexType,
 {
     /// Calculates the total length of the `query` that is covered by intervals in the map.
     /// Takes *O(log N + K)* where *K* is the number of intervals that overlap `query`.
     ///
-    /// See [IntervalMap::covered_len](../struct.IntervalMap.html#method.covered_len) for more details.
+    /// See [IntervalMap::covered_len](..=/struct.IntervalMap.html#method.covered_len) for more details.
     #[inline]
     pub fn covered_len<R>(&self, query: R) -> T
-    where R: RangeBounds<T>
+    where
+        R: RangeBounds<T>,
     {
         self.inner.covered_len(query)
     }

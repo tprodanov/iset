@@ -1,4 +1,4 @@
-//! This crates implements map and set with interval keys (ranges `x..y`).
+//! This crates implements map and set with interval keys (ranges `x..=y`).
 //!
 //! [IntervalMap](struct.IntervalMap.html) is implemented using red-black binary tree, where each node contains
 //! information about the smallest start and largest end in its subtree.
@@ -17,44 +17,44 @@
 
 #![no_std]
 
+extern crate alloc;
 #[cfg(feature = "std")]
 extern crate std;
-extern crate alloc;
 
-pub mod ix;
-pub mod iter;
-pub mod set;
-pub mod entry;
-mod tree_rm;
 mod bitvec;
+pub mod entry;
+pub mod iter;
+pub mod ix;
+pub mod set;
+mod tree_rm;
 
 #[cfg(all(test, feature = "std"))]
 mod tests;
 
 use alloc::vec::Vec;
 use core::{
-    ops::{Range, RangeFull, RangeInclusive, RangeBounds, Bound, AddAssign, Sub, Index},
-    fmt::{self, Debug, Display, Formatter},
     cmp::Ordering,
+    fmt::{self, Debug, Display, Formatter},
     iter::FromIterator,
+    ops::{AddAssign, Bound, Index, RangeBounds, RangeFull, RangeInclusive, Sub},
 };
 #[cfg(feature = "dot")]
 use std::io::{self, Write};
 #[cfg(feature = "serde")]
 use {
     core::marker::PhantomData,
-    serde::{Serialize, Serializer, Deserialize, Deserializer},
-    serde::ser::{SerializeTuple, SerializeSeq},
-    serde::de::{Visitor, SeqAccess},
+    serde::de::{SeqAccess, Visitor},
+    serde::ser::{SerializeSeq, SerializeTuple},
+    serde::{Deserialize, Deserializer, Serialize, Serializer},
 };
 
-use ix::IndexType;
-use iter::*;
 use bitvec::BitVec;
+use iter::*;
+use ix::IndexType;
 
+pub use entry::Entry;
 pub use ix::DefaultIx;
 pub use set::IntervalSet;
-pub use entry::Entry;
 
 #[derive(Clone, Debug, PartialEq, PartialOrd)]
 struct Interval<T> {
@@ -63,11 +63,11 @@ struct Interval<T> {
 }
 
 impl<T: PartialOrd + Copy> Interval<T> {
-    fn new(range: &Range<T>) -> Self {
-        check_interval(range.start, range.end);
+    fn new(range: &RangeInclusive<T>) -> Self {
+        check_interval(range.start(), range.end());
         Interval {
-            start: range.start,
-            end: range.end,
+            start: *range.start(),
+            end: *range.end(),
         }
     }
 
@@ -77,10 +77,8 @@ impl<T: PartialOrd + Copy> Interval<T> {
             Bound::Included(&value) => self.start <= value,
             Bound::Excluded(&value) => self.start < value,
             Bound::Unbounded => true,
-        })
-            &&
-        (match range.start_bound() {
-            Bound::Included(&value) | Bound::Excluded(&value) => self.end > value,
+        }) && (match range.start_bound() {
+            Bound::Included(&value) | Bound::Excluded(&value) => self.end >= value,
             Bound::Unbounded => true,
         })
     }
@@ -101,17 +99,18 @@ impl<T: PartialOrd + Copy> Interval<T> {
 
 impl<T: Copy> Interval<T> {
     #[inline]
-    fn to_range(&self) -> Range<T> {
-        self.start..self.end
+    fn to_range(&self) -> RangeInclusive<T> {
+        self.start..=self.end
     }
 }
 
 impl<T: Display> Display for Interval<T> {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        write!(f, "{}..{}", self.start, self.end)
+        write!(f, "{}..={}", self.start, self.end)
     }
 }
 
+#[allow(clippy::derive_ord_xor_partial_ord)]
 impl<T: PartialOrd + Copy> Ord for Interval<T> {
     fn cmp(&self, other: &Self) -> Ordering {
         // Implement cmp by ourselves because T can be PartialOrd.
@@ -131,7 +130,7 @@ impl<T: PartialOrd + Copy> Ord for Interval<T> {
     }
 }
 
-impl<T: PartialOrd + Copy> Eq for Interval<T> { }
+impl<T: PartialOrd + Copy> Eq for Interval<T> {}
 
 #[cfg(feature = "serde")]
 impl<T: Serialize> Serialize for Interval<T> {
@@ -184,8 +183,16 @@ impl<T, V, Ix: IndexType> Node<T, V, Ix> {
 #[cfg(feature = "dot")]
 impl<T: Display, V: Display, Ix: IndexType> Node<T, V, Ix> {
     fn write_dot<W: Write>(&self, index: usize, is_red: bool, mut writer: W) -> io::Result<()> {
-        writeln!(writer, "    {} [label=\"i={}\\n{}: {}\\nsubtree: {}\", fillcolor={}, style=filled]",
-            index, index, self.interval, self.value, self.subtree_interval, if is_red { "salmon" } else { "grey65" })?;
+        writeln!(
+            writer,
+            "    {} [label=\"i={}\\n{}: {}\\nsubtree: {}\", fillcolor={}, style=filled]",
+            index,
+            index,
+            self.interval,
+            self.value,
+            self.subtree_interval,
+            if is_red { "salmon" } else { "grey65" }
+        )?;
         if self.left.defined() {
             writeln!(writer, "    {} -> {} [label=\"L\"]", index, self.left)?;
         }
@@ -198,9 +205,21 @@ impl<T: Display, V: Display, Ix: IndexType> Node<T, V, Ix> {
 
 #[cfg(feature = "dot")]
 impl<T: Display, V, Ix: IndexType> Node<T, V, Ix> {
-    fn write_dot_without_values<W: Write>(&self, index: usize, is_red: bool, mut writer: W) -> io::Result<()> {
-        writeln!(writer, "    {} [label=\"i={}: {}\\nsubtree: {}\", fillcolor={}, style=filled]",
-            index, index, self.interval, self.subtree_interval, if is_red { "salmon" } else { "grey65" })?;
+    fn write_dot_without_values<W: Write>(
+        &self,
+        index: usize,
+        is_red: bool,
+        mut writer: W,
+    ) -> io::Result<()> {
+        writeln!(
+            writer,
+            "    {} [label=\"i={}: {}\\nsubtree: {}\", fillcolor={}, style=filled]",
+            index,
+            index,
+            self.interval,
+            self.subtree_interval,
+            if is_red { "salmon" } else { "grey65" }
+        )?;
         if self.left.defined() {
             writeln!(writer, "    {} -> {} [label=\"L\"]", index, self.left)?;
         }
@@ -212,18 +231,24 @@ impl<T: Display, V, Ix: IndexType> Node<T, V, Ix> {
 }
 
 fn check_interval<T: PartialOrd + Copy>(start: T, end: T) {
-    if start < end {
-        assert!(end > start, "Interval cannot be ordered (`start < end` but not `end > start`)");
+    if start <= end {
+        assert!(
+            end >= start,
+            "Interval cannot be ordered (`start <= end` but not `end >= start`)"
+        );
     } else if end <= start {
         panic!("Interval is empty (`start >= end`)");
     } else {
-        panic!("Interval cannot be ordered (not `start < end` and not `end <= start`)");
+        // panic!("Interval cannot be ordered (not `start <= end` and not `end <= start`)");
     }
 }
 
 fn check_interval_incl<T: PartialOrd + Copy>(start: T, end: T) {
     if start <= end {
-        assert!(end >= start, "Interval cannot be ordered (`start < end` but not `end > start`)");
+        assert!(
+            end >= start,
+            "Interval cannot be ordered (`start < end` but not `end > start`)"
+        );
     } else if end < start {
         panic!("Interval is empty (`start > end`)");
     } else {
@@ -233,7 +258,7 @@ fn check_interval_incl<T: PartialOrd + Copy>(start: T, end: T) {
 
 fn check_ordered<T: PartialOrd, R: RangeBounds<T>>(range: &R) {
     match (range.start_bound(), range.end_bound()) {
-        (_, Bound::Unbounded) | (Bound::Unbounded, _) => {},
+        (_, Bound::Unbounded) | (Bound::Unbounded, _) => {}
         (Bound::Included(a), Bound::Included(b)) => check_interval_incl(a, b),
         (Bound::Included(a), Bound::Excluded(b))
         | (Bound::Excluded(a), Bound::Included(b))
@@ -241,7 +266,7 @@ fn check_ordered<T: PartialOrd, R: RangeBounds<T>>(range: &R) {
     }
 }
 
-/// Map with interval keys (`x..y`).
+/// Map with interval keys (`x..=y`).
 ///
 /// Range bounds should implement `PartialOrd` and `Copy`, for example any
 /// integer or float types. However, you cannot use values that cannot be used in comparison (such as `NAN`),
@@ -250,28 +275,28 @@ fn check_ordered<T: PartialOrd, R: RangeBounds<T>>(range: &R) {
 ///
 /// # Example
 ///```rust
-/// let mut map = iset::interval_map!{ 20..30 => 'a', 15..25 => 'b', 10..20 => 'c' };
-/// assert_eq!(map.insert(10..20, 'd'), Some('c'));
-/// assert_eq!(map.insert(5..15, 'e'), None);
+/// let mut map = iset::interval_map!{ 20..=30 => 'a', 15..=25 => 'b', 10..=19 => 'c' };
+/// assert_eq!(map.insert(10..=19, 'd'), Some('c'));
+/// assert_eq!(map.insert(5..=15, 'e'), None);
 ///
 /// // Iterator over all pairs (range, value). Output is sorted.
 /// let a: Vec<_> = map.iter(..).collect();
-/// assert_eq!(a, &[(5..15, &'e'), (10..20, &'d'), (15..25, &'b'), (20..30, &'a')]);
+/// assert_eq!(a, &[(5..=15, &'e'), (10..=19, &'d'), (15..=25, &'b'), (20..=30, &'a')]);
 ///
-/// // Iterate over intervals that overlap query (..20 here). Output is sorted.
-/// let b: Vec<_> = map.intervals(..20).collect();
-/// assert_eq!(b, &[5..15, 10..20, 15..25]);
+/// // Iterate over intervals that overlap query (..=20 here). Output is sorted.
+/// let b: Vec<_> = map.intervals(..=20).collect();
+/// assert_eq!(b, &[5..=15, 10..=19, 15..=25, 20..=30]);
 ///
-/// assert_eq!(map[15..25], 'b');
-/// // Replace 15..25 => 'b' into 'z'.
-/// *map.get_mut(15..25).unwrap() = 'z';
+/// assert_eq!(map[15..=25], 'b');
+/// // Replace 15..=25 => 'b' into 'z'.
+/// *map.get_mut(15..=25).unwrap() = 'z';
 ///
-/// // Iterate over values that overlap query (20.. here). Output is sorted by intervals.
+/// // Iterate over values that overlap query (20..= here). Output is sorted by intervals.
 /// let c: Vec<_> = map.values(20..).collect();
 /// assert_eq!(c, &[&'z', &'a']);
 ///
-/// // Remove 10..20 => 'd'.
-/// assert_eq!(map.remove(10..20), Some('d'));
+/// // Remove 10..=20 => 'd'.
+/// assert_eq!(map.remove(10..=19), Some('d'));
 /// ```
 ///
 /// # Insertion, search and removal
@@ -311,8 +336,8 @@ fn check_ordered<T: PartialOrd, R: RangeBounds<T>>(range: &R) {
 /// the size of the output. All iterators traverse entries in a sorted order
 /// (sorted lexicographically by intervals).
 /// Iteration methods include:
-/// - [iter](#method.iter): iterate over pairs `(x..y, &value)`,
-/// - [intervals](#method.intervals): iterate over interval keys `x..y`,
+/// - [iter](#method.iter): iterate over pairs `(x..=y, &value)`,
+/// - [intervals](#method.intervals): iterate over interval keys `x..=y`,
 /// - [values](#method.values): iterate over values `&value`,
 /// - Mutable iterators [iter_mut](#method.iter_mut) and [values_mut](#method.values_mut),
 /// - Into iterators [into_iter](#method.into_iter), [into_intervals](#method.into_intervals) and
@@ -327,7 +352,7 @@ fn check_ordered<T: PartialOrd, R: RangeBounds<T>>(range: &R) {
 /// unsorted iterator is slightly faster as it reads the memory consecutively instead of traversing the tree.
 ///
 /// Methods `iter`, `intervals`, `values`, `iter_mut` and `values_mut` have alternatives [overlap](#method.overlap),
-/// [overlap_intervals](#method.overlap_intervals), ..., that allow to iterate over all entries that
+/// [overlap_intervals](#method.overlap_intervals), ..=., that allow to iterate over all entries that
 /// cover a single point `x` (same as `x..=x`).
 ///
 /// # Index types
@@ -349,29 +374,29 @@ fn check_ordered<T: PartialOrd, R: RangeBounds<T>>(range: &R) {
 ///
 /// // Creates an empty interval map with the default index type (u32):
 /// let mut map = IntervalMap::new();
-/// map.insert(10..20, 'a');
+/// map.insert(10..=20, 'a');
 ///
 /// // Creates an empty interval map and specifies index type (u16 here):
 /// let mut map = IntervalMap::<_, _, u16>::default();
-/// map.insert(10..20, 'a');
+/// map.insert(10..=20, 'a');
 ///
 /// let mut map = IntervalMap::<_, _, u16>::with_capacity(10);
-/// map.insert(10..20, 'a');
+/// map.insert(10..=20, 'a');
 ///
 /// // Creates an interval map with the default index type:
-/// let map = interval_map!{ 0..10 => 'a', 5..15 => 'b' };
+/// let map = interval_map!{ 0..=10 => 'a', 5..=15 => 'b' };
 ///
 /// // Creates an interval map and specifies index type:
-/// let map = interval_map!{ [u16] 0..10 => 'a', 5..15 => 'b' };
+/// let map = interval_map!{ [u16] 0..=10 => 'a', 5..=15 => 'b' };
 ///
 /// // Creates an interval map from a sorted iterator, takes O(N):
-/// let vec = vec![(0..10, 'b'), (5..15, 'a')];
+/// let vec = vec![(0..=10, 'b'), (5..=15, 'a')];
 /// let map = IntervalMap::<_, _, u32>::from_sorted(vec.into_iter());
 ///
 /// // Alternatively, you can use `.collect()` method that creates an interval map
 /// // with the default index size. `Collect` does not require sorted intervals,
 /// // but takes O(N log N).
-/// let vec = vec![(5..15, 'a'), (0..10, 'b')];
+/// let vec = vec![(5..=15, 'a'), (0..=10, 'b')];
 /// let map: IntervalMap<_, _> = vec.into_iter().collect();
 /// ```
 ///
@@ -380,15 +405,15 @@ fn check_ordered<T: PartialOrd, R: RangeBounds<T>>(range: &R) {
 /// directly after search was made.
 /// ```
 /// let mut map = iset::IntervalMap::new();
-/// map.entry(0..100).or_insert("abc".to_string());
-/// map.entry(100..200).or_insert_with(|| "def".to_string());
-/// let val = map.entry(200..300).or_insert(String::new());
+/// map.entry(0..=100).or_insert("abc".to_string());
+/// map.entry(101..=200).or_insert_with(|| "def".to_string());
+/// let val = map.entry(201..=300).or_insert(String::new());
 /// *val += "ghi";
-/// map.entry(200..300).and_modify(|s| *s += "jkl").or_insert("xyz".to_string());
+/// map.entry(201..=300).and_modify(|s| *s += "jkl").or_insert("xyz".to_string());
 ///
-/// assert_eq!(map[0..100], "abc");
-/// assert_eq!(map[100..200], "def");
-/// assert_eq!(map[200..300], "ghijkl");
+/// assert_eq!(map[0..=100], "abc");
+/// assert_eq!(map[101..=200], "def");
+/// assert_eq!(map[201..=300], "ghijkl");
 /// ```
 ///
 /// # Implementation, merge and split
@@ -475,9 +500,12 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
     ///
     /// Panics if the intervals are not sorted or if there are equal intervals.
     pub fn from_sorted<I>(iter: I) -> Self
-    where I: Iterator<Item = (Range<T>, V)>,
+    where
+        I: Iterator<Item = (RangeInclusive<T>, V)>,
     {
-        let nodes: Vec<_> = iter.map(|(range, value)| Node::new(Interval::new(&range), value)).collect();
+        let nodes: Vec<_> = iter
+            .map(|(range, value)| Node::new(Interval::new(&range), value))
+            .collect();
         let n = nodes.len();
         let mut map = Self {
             nodes,
@@ -656,10 +684,14 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
                 continue;
             }
 
-            if index == self.nodes[parent.get()].right && parent == self.nodes[grandparent.get()].left {
+            if index == self.nodes[parent.get()].right
+                && parent == self.nodes[grandparent.get()].left
+            {
                 self.rotate_left(parent);
                 index = self.nodes[index.get()].left;
-            } else if index == self.nodes[parent.get()].left && parent == self.nodes[grandparent.get()].right {
+            } else if index == self.nodes[parent.get()].left
+                && parent == self.nodes[grandparent.get()].right
+            {
                 self.rotate_right(parent);
                 index = self.nodes[index.get()].right;
             }
@@ -686,7 +718,13 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
 
     /// Inserts pair `(interval, value)` as a child of `parent`. Left child if `left_child`, right child otherwise.
     /// Returns mutable reference to the added value.
-    fn insert_at(&mut self, parent: Ix, left_child: bool, interval: Interval<T>, value: V) -> &mut V {
+    fn insert_at(
+        &mut self,
+        parent: Ix,
+        left_child: bool,
+        interval: Interval<T>,
+        value: V,
+    ) -> &mut V {
         let mut new_node = Node::new(interval, value);
         let new_index = Ix::new(self.nodes.len()).unwrap();
 
@@ -715,7 +753,7 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
     /// Insert pair `(interval, value)`.
     /// If both `replace` and `interval` was already in the map, replacing the value and returns the old value.
     /// Otherwise, inserts a new node and returns None.
-    fn insert_inner(&mut self, interval: Range<T>, value: V, replace: bool) -> Option<V> {
+    fn insert_inner(&mut self, interval: RangeInclusive<T>, value: V, replace: bool) -> Option<V> {
         let interval = Interval::new(&interval);
         let mut current = self.root;
 
@@ -727,7 +765,9 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
             let node = &mut self.nodes[current.get()];
             let (child, left_side) = match interval.cmp(&node.interval) {
                 Ordering::Less => (node.left, true),
-                Ordering::Equal if replace => return Some(core::mem::replace(&mut node.value, value)),
+                Ordering::Equal if replace => {
+                    return Some(core::mem::replace(&mut node.value, value))
+                }
                 Ordering::Equal | Ordering::Greater => (node.right, false),
             };
             if child.defined() {
@@ -742,14 +782,14 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
     /// Gets the given key's corresponding entry in the map for in-place manipulation.
     /// ```
     /// let mut counts = iset::IntervalMap::new();
-    /// for x in [0..5, 3..9, 2..6, 0..5, 2..6, 2..6] {
+    /// for x in [0..=5, 3..=9, 2..=6, 0..=5, 2..=6, 2..=6] {
     ///     counts.entry(x).and_modify(|curr| *curr += 1).or_insert(1);
     /// }
-    /// assert_eq!(counts[0..5], 2);
-    /// assert_eq!(counts[3..9], 1);
-    /// assert_eq!(counts[2..6], 3);
+    /// assert_eq!(counts[0..=5], 2);
+    /// assert_eq!(counts[3..=9], 1);
+    /// assert_eq!(counts[2..=6], 3);
     /// ```
-    pub fn entry<'a>(&'a mut self, interval: Range<T>) -> Entry<'a, T, V, Ix> {
+    pub fn entry(&mut self, interval: RangeInclusive<T>) -> Entry<'_, T, V, Ix> {
         let interval = Interval::new(&interval);
         let mut current = self.root;
         if !current.defined() {
@@ -760,7 +800,9 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
             let (child, left_side) = match interval.cmp(&node.interval) {
                 Ordering::Less => (node.left, true),
                 Ordering::Greater => (node.right, false),
-                Ordering::Equal => return Entry::Occupied(entry::OccupiedEntry::new(self, current)),
+                Ordering::Equal => {
+                    return Entry::Occupied(entry::OccupiedEntry::new(self, current))
+                }
             };
             if child.defined() {
                 current = child;
@@ -770,16 +812,16 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
         }
     }
 
-    /// Inserts an interval `x..y` and its value into the map. Takes *O(log N)*.
+    /// Inserts an interval `x..=y` and its value into the map. Takes *O(log N)*.
     ///
     /// If the map did not contain the interval, returns `None`. Otherwise returns the old value.
     ///
     /// Panics if `interval` is empty (`start >= end`) or contains a value that cannot be compared (such as `NAN`).
-    pub fn insert(&mut self, interval: Range<T>, value: V) -> Option<V> {
+    pub fn insert(&mut self, interval: RangeInclusive<T>, value: V) -> Option<V> {
         self.insert_inner(interval, value, true)
     }
 
-    /// Inserts an interval `x..y` and its value into the map even if there was an entry with matching interval.
+    /// Inserts an interval `x..=y` and its value into the map even if there was an entry with matching interval.
     /// Takes *O(log N)*.
     ///
     /// Panics if `interval` is empty (`start >= end`) or contains a value that cannot be compared (such as `NAN`).
@@ -797,22 +839,25 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
     ///
     /// ```rust
     /// let mut map = iset::interval_map!{};
-    /// map.force_insert(10..20, 1);
-    /// map.force_insert(15..25, 2);
-    /// map.force_insert(20..30, 3);
-    /// map.force_insert(15..25, 4);
+    /// map.force_insert(10..=20, 1);
+    /// map.force_insert(15..=25, 2);
+    /// map.force_insert(20..=30, 3);
+    /// map.force_insert(15..=25, 4);
     ///
     /// // Returns either 2 or 4.
-    /// assert!(map.get(15..25).unwrap() % 2 == 0);
-    /// // Removes either 15..25 => 2 or 15..25 => 4.
-    /// assert!(map.remove(15..25).unwrap() % 2 == 0);
+    /// assert!(map.get(15..=25).unwrap() % 2 == 0);
+    /// // Removes either 15..=25 => 2 or 15..=25 => 4.
+    /// assert!(map.remove(15..=25).unwrap() % 2 == 0);
     /// println!("{:?}", map);
-    /// // {10..20 => 1, 15..25 => 4, 20..30 => 3} OR
-    /// // {10..20 => 1, 15..25 => 2, 20..30 => 3}
+    /// // {10..=20 => 1, 15..=25 => 4, 20..=30 => 3} OR
+    /// // {10..=20 => 1, 15..=25 => 2, 20..=30 => 3}
     /// ```
-    pub fn force_insert(&mut self, interval: Range<T>, value: V) {
+    pub fn force_insert(&mut self, interval: RangeInclusive<T>, value: V) {
         // Cannot be replaced with debug_assert.
-        assert!(self.insert_inner(interval, value, false).is_none(), "Force insert should always return None");
+        assert!(
+            self.insert_inner(interval, value, false).is_none(),
+            "Force insert should always return None"
+        );
     }
 
     fn find_index(&self, interval: &Interval<T>) -> Ix {
@@ -831,7 +876,7 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
     /// Check if the interval map contains `interval` (exact match).
     ///
     /// Panics if `interval` is empty (`start >= end`) or contains a value that cannot be compared (such as `NAN`).
-    pub fn contains(&self, interval: Range<T>) -> bool {
+    pub fn contains(&self, interval: RangeInclusive<T>) -> bool {
         self.find_index(&Interval::new(&interval)).defined()
     }
 
@@ -839,7 +884,7 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
     /// If there is no such interval, returns `None`.
     ///
     /// Panics if `interval` is empty (`start >= end`) or contains a value that cannot be compared (such as `NAN`).
-    pub fn get(&self, interval: Range<T>) -> Option<&V> {
+    pub fn get(&self, interval: RangeInclusive<T>) -> Option<&V> {
         let index = self.find_index(&Interval::new(&interval));
         if index.defined() {
             Some(&self.nodes[index.get()].value)
@@ -852,7 +897,7 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
     /// If there is no such interval, returns `None`.
     ///
     /// Panics if `interval` is empty (`start >= end`) or contains a value that cannot be compared (such as `NAN`).
-    pub fn get_mut(&mut self, interval: Range<T>) -> Option<&mut V> {
+    pub fn get_mut(&mut self, interval: RangeInclusive<T>) -> Option<&mut V> {
         let index = self.find_index(&Interval::new(&interval));
         if index.defined() {
             Some(&mut self.nodes[index.get()].value)
@@ -865,7 +910,7 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
     /// Returns value if the interval was present in the map, and None otherwise.
     ///
     /// Panics if `interval` is empty (`start >= end`) or contains a value that cannot be compared (such as `NAN`).
-    pub fn remove(&mut self, interval: Range<T>) -> Option<V> {
+    pub fn remove(&mut self, interval: RangeInclusive<T>) -> Option<V> {
         self.remove_at(self.find_index(&Interval::new(&interval)))
     }
 
@@ -881,25 +926,29 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
     /// # Examples
     /// ```rust
     /// let mut map = iset::IntervalMap::new();
-    /// map.force_insert(5..15, 0);
-    /// map.force_insert(10..20, 1);
-    /// map.force_insert(10..20, 2);
-    /// map.force_insert(10..20, 3);
-    /// map.force_insert(10..20, 4);
-    /// map.force_insert(15..25, 5);
+    /// map.force_insert(5..=15, 0);
+    /// map.force_insert(10..=20, 1);
+    /// map.force_insert(10..=20, 2);
+    /// map.force_insert(10..=20, 3);
+    /// map.force_insert(10..=20, 4);
+    /// map.force_insert(15..=25, 5);
     ///
     /// // Remove an entry with an even value
-    /// let removed = map.remove_where(10..20, |&x| x % 2 == 0);
+    /// let removed = map.remove_where(10..=20, |&x| x % 2 == 0);
     /// assert!(removed == Some(2) || removed == Some(4));
     ///
     /// // Remove the entry with the minimum value
-    /// let minimum = map.values_at(10..20).cloned().min().unwrap();
+    /// let minimum = map.values_at(10..=20).cloned().min().unwrap();
     /// assert_eq!(minimum, 1);
-    /// let removed = map.remove_where(10..20, |&x| x == minimum);
+    /// let removed = map.remove_where(10..=20, |&x| x == minimum);
     /// assert_eq!(removed, Some(1));
     /// assert_eq!(map.len(), 4);
     /// ```
-    pub fn remove_where(&mut self, interval: Range<T>, mut predicate: impl FnMut(&V) -> bool) -> Option<V> {
+    pub fn remove_where(
+        &mut self,
+        interval: RangeInclusive<T>,
+        mut predicate: impl FnMut(&V) -> bool,
+    ) -> Option<V> {
         let mut values_it = self.values_at(interval);
         while let Some(val) = values_it.next() {
             if predicate(val) {
@@ -912,7 +961,7 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
     /// Returns a range of interval keys in the map, takes *O(1)*. Returns `None` if the map is empty.
     /// `out.start` is the minimal start of all intervals in the map,
     /// and `out.end` is the maximal end of all intervals in the map.
-    pub fn range(&self) -> Option<Range<T>> {
+    pub fn range(&self) -> Option<RangeInclusive<T>> {
         if self.root.defined() {
             Some(self.nodes[self.root.get()].subtree_interval.to_range())
         } else {
@@ -936,9 +985,9 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
         index
     }
 
-    /// Returns the pair `(x..y, &value)` with the smallest interval `x..y` (in lexicographical order).
+    /// Returns the pair `(x..=y, &value)` with the smallest interval `x..=y` (in lexicographical order).
     /// Takes *O(log N)*. Returns `None` if the map is empty.
-    pub fn smallest(&self) -> Option<(Range<T>, &V)> {
+    pub fn smallest(&self) -> Option<(RangeInclusive<T>, &V)> {
         if !self.root.defined() {
             None
         } else {
@@ -947,9 +996,9 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
         }
     }
 
-    /// Returns the pair `(x..y, &mut value)` with the smallest interval `x..y` (in lexicographical order).
+    /// Returns the pair `(x..=y, &mut value)` with the smallest interval `x..=y` (in lexicographical order).
     /// Takes *O(log N)*. Returns `None` if the map is empty.
-    pub fn smallest_mut(&mut self) -> Option<(Range<T>, &mut V)> {
+    pub fn smallest_mut(&mut self) -> Option<(RangeInclusive<T>, &mut V)> {
         if !self.root.defined() {
             None
         } else {
@@ -959,9 +1008,9 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
         }
     }
 
-    /// Removes the smallest interval `x..y` (in lexicographical order) from the map and returns pair `(x..y, value)`.
+    /// Removes the smallest interval `x..=y` (in lexicographical order) from the map and returns pair `(x..=y, value)`.
     /// Takes *O(log N)*. Returns `None` if the map is empty.
-    pub fn remove_smallest(&mut self) -> Option<(Range<T>, V)> {
+    pub fn remove_smallest(&mut self) -> Option<(RangeInclusive<T>, V)> {
         if !self.root.defined() {
             None
         } else {
@@ -971,9 +1020,9 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
         }
     }
 
-    /// Returns the pair `(x..y, &value)` with the largest interval `x..y` (in lexicographical order).
+    /// Returns the pair `(x..=y, &value)` with the largest interval `x..=y` (in lexicographical order).
     /// Takes *O(log N)*. Returns `None` if the map is empty.
-    pub fn largest(&self) -> Option<(Range<T>, &V)> {
+    pub fn largest(&self) -> Option<(RangeInclusive<T>, &V)> {
         if !self.root.defined() {
             None
         } else {
@@ -982,9 +1031,9 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
         }
     }
 
-    /// Returns the pair `(x..y, &mut value)` with the largest interval `x..y` (in lexicographical order).
+    /// Returns the pair `(x..=y, &mut value)` with the largest interval `x..=y` (in lexicographical order).
     /// Takes *O(log N)*. Returns `None` if the map is empty.
-    pub fn largest_mut(&mut self) -> Option<(Range<T>, &mut V)> {
+    pub fn largest_mut(&mut self) -> Option<(RangeInclusive<T>, &mut V)> {
         if !self.root.defined() {
             None
         } else {
@@ -994,9 +1043,9 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
         }
     }
 
-    /// Removes the largest interval `x..y` (in lexicographical order) from the map and returns pair `(x..y, value)`.
+    /// Removes the largest interval `x..=y` (in lexicographical order) from the map and returns pair `(x..=y, value)`.
     /// Takes *O(log N)*. Returns `None` if the map is empty.
-    pub fn remove_largest(&mut self) -> Option<(Range<T>, V)> {
+    pub fn remove_largest(&mut self) -> Option<(RangeInclusive<T>, V)> {
         if !self.root.defined() {
             None
         } else {
@@ -1010,12 +1059,13 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
     /// Equivalent to `map.iter(query).next().is_some()`, but much faster.
     ///
     /// ```rust
-    /// let map = iset::interval_map!{ 5..8 => 'a', 10..15 => 'b' };
-    /// assert!(!map.has_overlap(8..10));
+    /// let map = iset::interval_map!{ 5..=8 => 'a', 10..=15 => 'b' };
+    /// assert!(!map.has_overlap(9..=9));
     /// assert!(map.has_overlap(8..=10));
     /// ```
     pub fn has_overlap<R>(&self, query: R) -> bool
-    where R: RangeBounds<T>,
+    where
+        R: RangeBounds<T>,
     {
         check_ordered(&query);
         if !self.root.defined() {
@@ -1044,7 +1094,7 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
                         // The whole subtree lies to the left of the query.
                         continue;
                     }
-                },
+                }
                 Bound::Excluded(&q_start) => {
                     if q_start <= subtree_start {
                         true
@@ -1054,7 +1104,7 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
                         // The whole subtree lies to the left of the query.
                         continue;
                     }
-                },
+                }
             };
 
             // Query end is greater than the subtree interval end.
@@ -1069,14 +1119,14 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
                     } else {
                         q_end > subtree_end
                     }
-                },
+                }
                 Bound::Excluded(&q_end) => {
                     if q_end <= subtree_start {
                         continue;
                     } else {
                         q_end > subtree_end
                     }
-                },
+                }
             };
             if q_start_lt_start || q_end_gt_end || node.interval.intersects_range(&query) {
                 return true;
@@ -1091,63 +1141,70 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
         false
     }
 
-    /// Iterates over pairs `(x..y, &value)` that overlap the `query`.
+    /// Iterates over pairs `(x..=y, &value)` that overlap the `query`.
     /// Takes *O(log N + K)* where *K* is the size of the output.
     /// Output is sorted by intervals, but not by values.
     ///
     /// Panics if `interval` is empty or contains a value that cannot be compared (such as `NAN`).
-    pub fn iter<'a, R>(&'a self, query: R) -> Iter<'a, T, V, R, Ix>
-    where R: RangeBounds<T>,
+    pub fn iter<R>(&self, query: R) -> Iter<'_, T, V, R, Ix>
+    where
+        R: RangeBounds<T>,
     {
         Iter::new(self, query)
     }
 
-    /// Iterates over intervals `x..y` that overlap the `query`.
+    /// Iterates over intervals `x..=y` that overlap the `query`.
     /// See [iter](#method.iter) for more details.
-    pub fn intervals<'a, R>(&'a self, query: R) -> Intervals<'a, T, V, R, Ix>
-    where R: RangeBounds<T>,
+    pub fn intervals<R>(&self, query: R) -> Intervals<'_, T, V, R, Ix>
+    where
+        R: RangeBounds<T>,
     {
         Intervals::new(self, query)
     }
 
     /// Iterates over values that overlap the `query`.
     /// See [iter](#method.iter) for more details.
-    pub fn values<'a, R>(&'a self, query: R) -> Values<'a, T, V, R, Ix>
-    where R: RangeBounds<T>,
+    pub fn values<R>(&self, query: R) -> Values<'_, T, V, R, Ix>
+    where
+        R: RangeBounds<T>,
     {
         Values::new(self, query)
     }
 
-    /// Iterator over pairs `(x..y, &mut value)` that overlap the `query`.
+    /// Iterator over pairs `(x..=y, &mut value)` that overlap the `query`.
     /// See [iter](#method.iter) for more details.
-    pub fn iter_mut<'a, R>(&'a mut self, query: R) -> IterMut<'a, T, V, R, Ix>
-    where R: RangeBounds<T>,
+    pub fn iter_mut<R>(&mut self, query: R) -> IterMut<'_, T, V, R, Ix>
+    where
+        R: RangeBounds<T>,
     {
         IterMut::new(self, query)
     }
 
     /// Iterator over *mutable* values that overlap the `query`.
     /// See [iter](#method.iter) for more details.
-    pub fn values_mut<'a, R>(&'a mut self, query: R) -> ValuesMut<'a, T, V, R, Ix>
-    where R: RangeBounds<T>,
+    pub fn values_mut<R>(&mut self, query: R) -> ValuesMut<'_, T, V, R, Ix>
+    where
+        R: RangeBounds<T>,
     {
         ValuesMut::new(self, query)
     }
 
     /// Consumes [IntervalMap](struct.IntervalMap.html) and
-    /// iterates over pairs `(x..y, value)` that overlap the `query`.
+    /// iterates over pairs `(x..=y, value)` that overlap the `query`.
     /// See [iter](#method.iter) for more details.
     pub fn into_iter<R>(self, query: R) -> IntoIter<T, V, R, Ix>
-    where R: RangeBounds<T>,
+    where
+        R: RangeBounds<T>,
     {
         IntoIter::new(self, query)
     }
 
     /// Consumes [IntervalMap](struct.IntervalMap.html) and
-    /// iterates over pairs `(x..y, value)` that overlap the `query`.
+    /// iterates over pairs `(x..=y, value)` that overlap the `query`.
     /// See [iter](#method.iter) for more details.
     pub fn into_intervals<R>(self, query: R) -> IntoIntervals<T, V, R, Ix>
-    where R: RangeBounds<T>,
+    where
+        R: RangeBounds<T>,
     {
         IntoIntervals::new(self, query)
     }
@@ -1156,89 +1213,90 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
     /// iterates over values, for which intervals that overlap the `query`.
     /// See [iter](#method.iter) for more details.
     pub fn into_values<R>(self, query: R) -> IntoValues<T, V, R, Ix>
-    where R: RangeBounds<T>,
+    where
+        R: RangeBounds<T>,
     {
         IntoValues::new(self, query)
     }
 
-    /// Iterates over pairs `(x..y, &value)` that overlap the `point`.
+    /// Iterates over pairs `(x..=y, &value)` that overlap the `point`.
     /// See [iter](#method.iter) for more details.
     #[inline]
-    pub fn overlap<'a>(&'a self, point: T) -> Iter<'a, T, V, RangeInclusive<T>, Ix> {
+    pub fn overlap(&self, point: T) -> Iter<'_, T, V, RangeInclusive<T>, Ix> {
         Iter::new(self, point..=point)
     }
 
-    /// Iterates over intervals `x..y` that overlap the `point`.
+    /// Iterates over intervals `x..=y` that overlap the `point`.
     /// See [iter](#method.iter) for more details.
     #[inline]
-    pub fn intervals_overlap<'a>(&'a self, point: T) -> Intervals<'a, T, V, RangeInclusive<T>, Ix> {
+    pub fn intervals_overlap(&self, point: T) -> Intervals<'_, T, V, RangeInclusive<T>, Ix> {
         Intervals::new(self, point..=point)
     }
 
     /// Iterates over values that overlap the `point`.
     /// See [iter](#method.iter) for more details.
     #[inline]
-    pub fn values_overlap<'a>(&'a self, point: T) -> Values<'a, T, V, RangeInclusive<T>, Ix> {
+    pub fn values_overlap(&self, point: T) -> Values<'_, T, V, RangeInclusive<T>, Ix> {
         Values::new(self, point..=point)
     }
 
-    /// Iterator over pairs `(x..y, &mut value)` that overlap the `point`.
+    /// Iterator over pairs `(x..=y, &mut value)` that overlap the `point`.
     /// See [iter](#method.iter) for more details.
     #[inline]
-    pub fn overlap_mut<'a>(&'a mut self, point: T) -> IterMut<'a, T, V, RangeInclusive<T>, Ix> {
+    pub fn overlap_mut(&mut self, point: T) -> IterMut<'_, T, V, RangeInclusive<T>, Ix> {
         IterMut::new(self, point..=point)
     }
 
     /// Iterates over *mutable* values that overlap the `point`.
     /// See [iter](#method.iter) for more details.
     #[inline]
-    pub fn values_overlap_mut<'a>(&'a mut self, point: T) -> ValuesMut<'a, T, V, RangeInclusive<T>, Ix> {
+    pub fn values_overlap_mut(&mut self, point: T) -> ValuesMut<'_, T, V, RangeInclusive<T>, Ix> {
         ValuesMut::new(self, point..=point)
     }
 
     /// Iterates over all values (`&V`) with intervals that match `query` exactly.
     /// Takes *O(log N + K)* where *K* is the size of the output.
-    pub fn values_at<'a>(&'a self, query: Range<T>) -> ValuesExact<'a, T, V, Ix> {
+    pub fn values_at(&self, query: RangeInclusive<T>) -> ValuesExact<'_, T, V, Ix> {
         ValuesExact::new(self, Interval::new(&query))
     }
 
     /// Iterates over all mutable values (`&mut V`) with intervals that match `query` exactly.
-    pub fn values_mut_at<'a>(&'a mut self, query: Range<T>) -> ValuesExactMut<'a, T, V, Ix> {
+    pub fn values_mut_at(&mut self, query: RangeInclusive<T>) -> ValuesExactMut<'_, T, V, Ix> {
         ValuesExactMut::new(self, Interval::new(&query))
     }
 
-    /// Creates an unsorted iterator over all pairs `(x..y, &value)`.
+    /// Creates an unsorted iterator over all pairs `(x..=y, &value)`.
     /// Slightly faster than the sorted iterator, although both take *O(N)*.
-    pub fn unsorted_iter<'a>(&'a self) -> UnsIter<'a, T, V, Ix> {
+    pub fn unsorted_iter(&self) -> UnsIter<'_, T, V, Ix> {
         UnsIter::new(self)
     }
 
-    /// Creates an unsorted iterator over all intervals `x..y`.
-    pub fn unsorted_intervals<'a>(&'a self) -> UnsIntervals<'a, T, V, Ix> {
+    /// Creates an unsorted iterator over all intervals `x..=y`.
+    pub fn unsorted_intervals(&self) -> UnsIntervals<'_, T, V, Ix> {
         UnsIntervals::new(self)
     }
 
     /// Creates an unsorted iterator over all values `&value`.
-    pub fn unsorted_values<'a>(&'a self) -> UnsValues<'a, T, V, Ix> {
+    pub fn unsorted_values(&self) -> UnsValues<'_, T, V, Ix> {
         UnsValues::new(self)
     }
 
-    /// Creates an unsorted iterator over all pairs `(x..y, &mut value)`.
-    pub fn unsorted_iter_mut<'a>(&'a mut self) -> UnsIterMut<'a, T, V, Ix> {
+    /// Creates an unsorted iterator over all pairs `(x..=y, &mut value)`.
+    pub fn unsorted_iter_mut(&mut self) -> UnsIterMut<'_, T, V, Ix> {
         UnsIterMut::new(self)
     }
 
     /// Creates an unsorted iterator over all mutable values `&mut value`.
-    pub fn unsorted_values_mut<'a>(&'a mut self) -> UnsValuesMut<'a, T, V, Ix> {
+    pub fn unsorted_values_mut(&mut self) -> UnsValuesMut<'_, T, V, Ix> {
         UnsValuesMut::new(self)
     }
 
-    /// Consumes `IntervalMap` and creates an unsorted iterator over all pairs `(x..y, value)`.
+    /// Consumes `IntervalMap` and creates an unsorted iterator over all pairs `(x..=y, value)`.
     pub fn unsorted_into_iter(self) -> UnsIntoIter<T, V, Ix> {
         UnsIntoIter::new(self)
     }
 
-    /// Consumes `IntervalMap` and creates an unsorted iterator over all intervals `x..y`.
+    /// Consumes `IntervalMap` and creates an unsorted iterator over all intervals `x..=y`.
     pub fn unsorted_into_intervals(self) -> UnsIntoIntervals<T, V, Ix> {
         UnsIntoIntervals::new(self)
     }
@@ -1251,39 +1309,44 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
 
 impl<T: PartialOrd + Copy, V, Ix: IndexType> IntoIterator for IntervalMap<T, V, Ix> {
     type IntoIter = IntoIter<T, V, RangeFull, Ix>;
-    type Item = (Range<T>, V);
+    type Item = (RangeInclusive<T>, V);
 
     fn into_iter(self) -> Self::IntoIter {
         IntoIter::new(self, ..)
     }
 }
 
-/// Construct [IntervalMap](struct.IntervalMap.html) from pairs `(x..y, value)`.
+/// Construct [IntervalMap](struct.IntervalMap.html) from pairs `(x..=y, value)`.
 ///
 /// Panics, if the iterator contains duplicate intervals.
-impl<T: PartialOrd + Copy, V> FromIterator<(Range<T>, V)> for IntervalMap<T, V> {
+impl<T: PartialOrd + Copy, V> FromIterator<(RangeInclusive<T>, V)> for IntervalMap<T, V> {
     fn from_iter<I>(iter: I) -> Self
-    where I: IntoIterator<Item = (Range<T>, V)>
+    where
+        I: IntoIterator<Item = (RangeInclusive<T>, V)>,
     {
         let mut map = IntervalMap::new();
         for (range, value) in iter {
-            assert!(map.insert(range, value).is_none(), "Cannot collect IntervalMap with duplicate intervals!");
+            assert!(
+                map.insert(range, value).is_none(),
+                "Cannot collect IntervalMap with duplicate intervals!"
+            );
         }
         map
     }
 }
 
-impl<T: PartialOrd + Copy, V, Ix: IndexType> Index<Range<T>> for IntervalMap<T, V, Ix> {
+impl<T: PartialOrd + Copy, V, Ix: IndexType> Index<RangeInclusive<T>> for IntervalMap<T, V, Ix> {
     type Output = V;
 
-    fn index(&self, range: Range<T>) -> &Self::Output {
+    fn index(&self, range: RangeInclusive<T>) -> &Self::Output {
         self.get(range).expect("No entry found for range")
     }
 }
 
 impl<T, V, Ix> IntervalMap<T, V, Ix>
-where T: PartialOrd + Copy + Default + AddAssign + Sub<Output = T>,
-      Ix: IndexType,
+where
+    T: PartialOrd + Copy + Default + AddAssign + Sub<Output = T>,
+    Ix: IndexType,
 {
     /// Calculates the total length of the `query` that is covered by intervals in the map.
     /// Takes *O(log N + K)* where *K* is the number of intervals that overlap `query`.
@@ -1294,12 +1357,13 @@ where T: PartialOrd + Copy + Default + AddAssign + Sub<Output = T>,
     /// This also means that the size of the interval *(0, 1)* will be 1 even for integer types.
     ///
     /// ```rust
-    /// let map = iset::interval_map!{ 0..10 => 'a', 4..8 => 'b', 12..15 => 'c' };
-    /// assert_eq!(map.covered_len(2..14), 10);
+    /// let map = iset::interval_map!{ 0..=10 => 'a', 4..=8 => 'b', 12..=15 => 'c' };
+    /// assert_eq!(map.covered_len(2..=14), 10);
     /// assert_eq!(map.covered_len(..), 13);
     /// ```
     pub fn covered_len<R>(&self, query: R) -> T
-    where R: RangeBounds<T>,
+    where
+        R: RangeBounds<T>,
     {
         let mut res = T::default();
         let start_bound = query.start_bound().cloned();
@@ -1310,12 +1374,12 @@ where T: PartialOrd + Copy + Default + AddAssign + Sub<Output = T>,
         let mut curr_end = res;
         for interval in self.intervals(query) {
             let start = match start_bound {
-                Bound::Included(a) | Bound::Excluded(a) if a >= interval.start => a,
-                _ => interval.start,
+                Bound::Included(a) | Bound::Excluded(a) if a >= *interval.start() => a,
+                _ => *interval.start(),
             };
             let end = match end_bound {
-                Bound::Included(b) | Bound::Excluded(b) if b <= interval.end => b,
-                _ => interval.end,
+                Bound::Included(b) | Bound::Excluded(b) if b <= *interval.end() => b,
+                _ => *interval.end(),
             };
             debug_assert!(end >= start);
 
@@ -1345,7 +1409,7 @@ impl<T: PartialOrd + Copy + Display, V: Display, Ix: IndexType> IntervalMap<T, V
     /// Writes dot file to `writer`. `T` and `V` should implement `Display`.
     pub fn write_dot<W: Write>(&self, mut writer: W) -> io::Result<()> {
         writeln!(writer, "digraph {{")?;
-        for i in 0..self.nodes.len() {
+        for i in 0..=self.nodes.len() {
             self.nodes[i].write_dot(i, self.colors.get(i), &mut writer)?;
         }
         writeln!(writer, "}}")
@@ -1357,7 +1421,7 @@ impl<T: PartialOrd + Copy + Display, V, Ix: IndexType> IntervalMap<T, V, Ix> {
     /// Writes dot file to `writer` without values. `T` should implement `Display`.
     pub fn write_dot_without_values<W: Write>(&self, mut writer: W) -> io::Result<()> {
         writeln!(writer, "digraph {{")?;
-        for i in 0..self.nodes.len() {
+        for i in 0..=self.nodes.len() {
             self.nodes[i].write_dot_without_values(i, self.colors.get(i), &mut writer)?;
         }
         writeln!(writer, "}}")
@@ -1382,24 +1446,24 @@ impl<T: PartialOrd + Copy + Debug, V: Debug, Ix: IndexType> Debug for IntervalMa
 
 #[cfg(feature = "serde")]
 impl<T, V, Ix> Serialize for IntervalMap<T, V, Ix>
-    where
-        T: PartialOrd + Copy + Serialize,
-        V: Serialize,
-        Ix: IndexType + Serialize,
+where
+    T: PartialOrd + Copy + Serialize,
+    V: Serialize,
+    Ix: IndexType + Serialize,
 {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         // For some reason, Vec<Node> does not support serialization. Because of that we create a newtype.
         struct NodeVecSer<'a, T, V, Ix>(&'a Vec<Node<T, V, Ix>>)
-            where
-                T: PartialOrd + Copy + Serialize,
-                V: Serialize,
-                Ix: IndexType + Serialize;
+        where
+            T: PartialOrd + Copy + Serialize,
+            V: Serialize,
+            Ix: IndexType + Serialize;
 
         impl<'a, T, V, Ix> Serialize for NodeVecSer<'a, T, V, Ix>
-            where
-                T: PartialOrd + Copy + Serialize,
-                V: Serialize,
-                Ix: IndexType + Serialize,
+        where
+            T: PartialOrd + Copy + Serialize,
+            V: Serialize,
+            Ix: IndexType + Serialize,
         {
             fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
                 let mut seq = serializer.serialize_seq(Some(self.0.len()))?;
@@ -1424,10 +1488,10 @@ struct NodeVecDe<T: PartialOrd + Copy, V, Ix: IndexType>(Vec<Node<T, V, Ix>>);
 
 #[cfg(feature = "serde")]
 impl<'de, T, V, Ix> Deserialize<'de> for NodeVecDe<T, V, Ix>
-    where
-        T: PartialOrd + Copy + Deserialize<'de>,
-        V: Deserialize<'de>,
-        Ix: IndexType + Deserialize<'de>,
+where
+    T: PartialOrd + Copy + Deserialize<'de>,
+    V: Deserialize<'de>,
+    Ix: IndexType + Deserialize<'de>,
 {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         struct NodeVecVisitor<T: PartialOrd + Copy, V, Ix: IndexType> {
@@ -1470,7 +1534,8 @@ where
     Ix: IndexType + Deserialize<'de>,
 {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let (node_vec, colors, root) = <(NodeVecDe<T, V, Ix>, BitVec, Ix)>::deserialize(deserializer)?;
+        let (node_vec, colors, root) =
+            <(NodeVecDe<T, V, Ix>, BitVec, Ix)>::deserialize(deserializer)?;
         Ok(IntervalMap {
             nodes: node_vec.0,
             colors,
@@ -1483,12 +1548,12 @@ where
 /// ```rust
 /// use iset::interval_map;
 ///
-/// let map = interval_map!{ 0..10 => "a", 5..15 => "b", -5..20 => "c" };
+/// let map = interval_map!{ 0..=10 => "a", 5..=15 => "b", -5..=20 => "c" };
 /// let a: Vec<_> = map.iter(..).collect();
-/// assert_eq!(a, &[(-5..20, &"c"), (0..10, &"a"), (5..15, &"b")]);
+/// assert_eq!(a, &[(-5..=20, &"c"), (0..=10, &"a"), (5..=15, &"b")]);
 ///
 /// // Creates an interval map with `u8` index type (up to 255 values in the map).
-/// let set = interval_map!{ [u8] 0..10 => "a", 5..15 => "b", -5..20 => "c" };
+/// let set = interval_map!{ [u8] 0..=10 => "a", 5..=15 => "b", -5..=20 => "c" };
 /// ```
 ///
 /// Panics if there are duplicate intervals.
@@ -1506,7 +1571,7 @@ macro_rules! interval_map {
             let mut _temp_map = $crate::IntervalMap::<_, _, $ix>::default();
             $(
                 assert!(_temp_map.insert($k, $v).is_none(),
-                    "Cannot use interval_map!{{ ... }} with duplicate intervals");
+                    "Cannot use interval_map!{{ ..=. }} with duplicate intervals");
             )*
             _temp_map
         }
@@ -1518,7 +1583,7 @@ macro_rules! interval_map {
             let mut _temp_map = $crate::IntervalMap::new();
             $(
                 assert!(_temp_map.insert($k, $v).is_none(),
-                    "Cannot use interval_map!{{ ... }} with duplicate intervals");
+                    "Cannot use interval_map!{{ ..=. }} with duplicate intervals");
             )*
             _temp_map
         }
@@ -1529,12 +1594,12 @@ macro_rules! interval_map {
 /// ```rust
 /// use iset::interval_set;
 ///
-/// let set = interval_set!{ 100..210, 50..150 };
+/// let set = interval_set!{ 100..=210, 50..=150 };
 /// let a: Vec<_> = set.iter(..).collect();
-/// assert_eq!(a, &[50..150, 100..210]);
+/// assert_eq!(a, &[50..=150, 100..=210]);
 ///
 /// // Creates an interval set with `u8` index type (up to 255 values in the set).
-/// let set = interval_set!{ [u8] 100..210, 50..150 };
+/// let set = interval_set!{ [u8] 100..=210, 50..=150 };
 /// ```
 #[macro_export]
 macro_rules! interval_set {

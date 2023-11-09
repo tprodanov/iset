@@ -1,15 +1,16 @@
 //! Module with various iterators over `IntervalMap` and `IntervalSet`.
 
 use alloc::vec::Vec;
-use core::ops::{Range, RangeBounds, Bound};
 use core::iter::FusedIterator;
 use core::mem;
+use core::ops::{Bound, RangeBounds, RangeInclusive};
 
-use super::{Interval, IntervalMap, Node, IndexType, check_ordered, BitVec};
+use super::{check_ordered, BitVec, IndexType, Interval, IntervalMap, Node};
 
 fn should_go_left<T, V, Ix>(nodes: &[Node<T, V, Ix>], index: Ix, start_bound: Bound<&T>) -> bool
-where T: PartialOrd + Copy,
-      Ix: IndexType,
+where
+    T: PartialOrd + Copy,
+    Ix: IndexType,
 {
     if !nodes[index.get()].left.defined() {
         return false;
@@ -22,8 +23,9 @@ where T: PartialOrd + Copy,
 }
 
 fn should_go_right<T, V, Ix>(nodes: &[Node<T, V, Ix>], index: Ix, end_bound: Bound<&T>) -> bool
-where T: PartialOrd + Copy,
-      Ix: IndexType,
+where
+    T: PartialOrd + Copy,
+    Ix: IndexType,
 {
     if !nodes[index.get()].right.defined() {
         return false;
@@ -45,7 +47,7 @@ impl ActionStack {
     }
 
     #[inline]
-    fn push(& mut self) {
+    fn push(&mut self) {
         self.0.push(false);
         self.0.push(false);
     }
@@ -99,10 +101,16 @@ impl ActionStack {
     }
 }
 
-fn move_to_next<T, V, R, Ix>(nodes: &[Node<T, V, Ix>], mut index: Ix, range: &R, stack: &mut ActionStack) -> Ix
-where T: PartialOrd + Copy,
-      R: RangeBounds<T>,
-      Ix: IndexType,
+fn move_to_next<T, V, R, Ix>(
+    nodes: &[Node<T, V, Ix>],
+    mut index: Ix,
+    range: &R,
+    stack: &mut ActionStack,
+) -> Ix
+where
+    T: PartialOrd + Copy,
+    R: RangeBounds<T>,
+    Ix: IndexType,
 {
     while index.defined() {
         if stack.can_go_left() {
@@ -190,28 +198,67 @@ macro_rules! iterator {
 iterator! {
     #[doc="Iterator over pairs `(x..y, &value)`."]
     #[derive(Clone, Debug)]
-    struct Iter -> (Range<T>, &'a V),
+    struct Iter -> (RangeInclusive<T>, &'a V),
     node -> (node.interval.to_range(), &node.value), { /* no mut */ }
 }
 
 iterator! {
     #[doc="Iterator over intervals `x..y`."]
     #[derive(Clone, Debug)]
-    struct Intervals -> Range<T>,
+    struct Intervals -> RangeInclusive<T>,
     node -> node.interval.to_range(), { /* no mut */ }
 }
 
-iterator! {
-    #[doc="Iterator over values."]
-    #[derive(Clone, Debug)]
-    struct Values -> &'a V,
-    node -> &node.value, { /* no mut */ }
+#[doc = "Iterator over values."]
+#[derive(Clone, Debug)]
+pub struct Values<'a, T, V, R, Ix>
+where
+    T: PartialOrd + Copy,
+    R: RangeBounds<T>,
+    Ix: IndexType,
+{
+    pub(crate) index: Ix,
+    range: R,
+    nodes: &'a [Node<T, V, Ix>],
+    stack: ActionStack,
+}
+impl<'a, T: PartialOrd + Copy, V, R: RangeBounds<T>, Ix: IndexType> Values<'a, T, V, R, Ix> {
+    pub(crate) fn new(tree: &'a IntervalMap<T, V, Ix>, range: R) -> Self {
+        check_ordered(&range);
+        Self {
+            index: tree.root,
+            range,
+            nodes: &tree.nodes,
+            stack: ActionStack::new(),
+        }
+    }
+}
+impl<'a, T: PartialOrd + Copy, V, R: RangeBounds<T>, Ix: IndexType> Iterator
+    for Values<'a, T, V, R, Ix>
+{
+    type Item = &'a V;
+    fn next(&mut self) -> Option<Self::Item> {
+        self.index = move_to_next(self.nodes, self.index, &self.range, &mut self.stack);
+        if self.index.defined() {
+            let node = &self.nodes[self.index.get()];
+            Some((&node.value))
+        } else {
+            None
+        }
+    }
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (0, Some(self.nodes.len()))
+    }
+}
+impl<'a, T: PartialOrd + Copy, V, R: RangeBounds<T>, Ix: IndexType> FusedIterator
+    for Values<'a, T, V, R, Ix>
+{
 }
 
 iterator! {
     #[doc="Iterator over pairs `(x..y, &mut value)`."]
     #[derive(Debug)]
-    struct IterMut -> (Range<T>, &'a mut V),
+    struct IterMut -> (RangeInclusive<T>, &'a mut V),
     node -> (node.interval.to_range(), unsafe { &mut *(&mut node.value as *mut V) }), { mut }
 }
 
@@ -279,14 +326,14 @@ macro_rules! into_iterator {
 into_iterator! {
     #[doc="Iterator over pairs `(x..y, value)`. Takes ownership of the interval map/set."]
     #[derive(Debug)]
-    struct IntoIter -> (Range<T>, V),
+    struct IntoIter -> (RangeInclusive<T>, V),
     node -> (node.interval.to_range(), mem::replace(&mut node.value, unsafe { mem::zeroed() }))
 }
 
 into_iterator! {
     #[doc="Iterator over intervals `x..y`. Takes ownership of the interval map/set."]
     #[derive(Debug)]
-    struct IntoIntervals -> Range<T>,
+    struct IntoIntervals -> RangeInclusive<T>,
     node -> node.interval.to_range()
 }
 
@@ -355,7 +402,7 @@ macro_rules! unsorted_iterator {
 unsorted_iterator! {
     #[doc="Unsorted iterator over pairs `(x..y, &value)`."]
     #[derive(Clone, Debug)]
-    struct UnsIter -> (Range<T>, &'a V),
+    struct UnsIter -> (RangeInclusive<T>, &'a V),
     (iter -> alloc::slice::Iter<'a, Node<T, V, Ix>>),
     node -> (node.interval.to_range(), &node.value), { /* no mut */ }
 }
@@ -363,7 +410,7 @@ unsorted_iterator! {
 unsorted_iterator! {
     #[doc="Unsorted iterator over intervals `x..y`."]
     #[derive(Clone, Debug)]
-    struct UnsIntervals -> Range<T>,
+    struct UnsIntervals -> RangeInclusive<T>,
     (iter -> alloc::slice::Iter<'a, Node<T, V, Ix>>),
     node -> node.interval.to_range(), { /* no mut */ }
 }
@@ -379,7 +426,7 @@ unsorted_iterator! {
 unsorted_iterator! {
     #[doc="Unsorted iterator over pairs `(x..y, &mut V)`."]
     #[derive(Debug)]
-    struct UnsIterMut -> (Range<T>, &'a mut V),
+    struct UnsIterMut -> (RangeInclusive<T>, &'a mut V),
     (iter_mut -> alloc::slice::IterMut<'a, Node<T, V, Ix>>),
     node -> (node.interval.to_range(), &mut node.value), { mut }
 }
@@ -440,14 +487,14 @@ macro_rules! unsorted_into_iterator {
 unsorted_into_iterator! {
     #[doc="Unsorted IntoIterator over pairs `(x..y, V)`. Takes ownership of the interval map/set."]
     #[derive(Debug)]
-    struct UnsIntoIter -> (Range<T>, V),
+    struct UnsIntoIter -> (RangeInclusive<T>, V),
     node -> (node.interval.to_range(), node.value)
 }
 
 unsorted_into_iterator! {
     #[doc="Unsorted IntoIterator over intervals `x..y`. Takes ownership of the interval map/set."]
     #[derive(Debug)]
-    struct UnsIntoIntervals -> Range<T>,
+    struct UnsIntoIntervals -> RangeInclusive<T>,
     node -> node.interval.to_range()
 }
 
@@ -459,31 +506,38 @@ unsorted_into_iterator! {
 }
 
 fn should_go_left_exact<T, V, Ix>(nodes: &[Node<T, V, Ix>], index: Ix, query: &Interval<T>) -> bool
-where T: PartialOrd + Copy,
-      Ix: IndexType,
+where
+    T: PartialOrd + Copy,
+    Ix: IndexType,
 {
     let node = &nodes[index.get()];
     let left_index = nodes[index.get()].left;
-    left_index.defined() && query <= &node.interval && nodes[left_index.get()].subtree_interval.contains(query)
+    left_index.defined()
+        && query <= &node.interval
+        && nodes[left_index.get()].subtree_interval.contains(query)
 }
 
 fn should_go_right_exact<T, V, Ix>(nodes: &[Node<T, V, Ix>], index: Ix, query: &Interval<T>) -> bool
-where T: PartialOrd + Copy,
-      Ix: IndexType,
+where
+    T: PartialOrd + Copy,
+    Ix: IndexType,
 {
     let node = &nodes[index.get()];
     let right_index = nodes[index.get()].right;
-    right_index.defined() && query >= &node.interval && nodes[right_index.get()].subtree_interval.contains(query)
+    right_index.defined()
+        && query >= &node.interval
+        && nodes[right_index.get()].subtree_interval.contains(query)
 }
 
 fn move_to_next_exact<T, V, Ix>(
     nodes: &[Node<T, V, Ix>],
     mut index: Ix,
     query: &Interval<T>,
-    stack: &mut ActionStack
+    stack: &mut ActionStack,
 ) -> Ix
-where T: PartialOrd + Copy,
-      Ix: IndexType,
+where
+    T: PartialOrd + Copy,
+    Ix: IndexType,
 {
     while !stack.is_empty() && index.defined() {
         if stack.can_go_left() {

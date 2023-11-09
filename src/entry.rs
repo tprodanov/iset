@@ -1,11 +1,8 @@
-use core::{
-    fmt,
-    ops::Range,
-};
 use super::{
-    IntervalMap, Interval,
-    ix::{IndexType, DefaultIx},
+    ix::{DefaultIx, IndexType},
+    Interval, IntervalMap,
 };
+use core::{fmt, ops::RangeInclusive};
 
 /// A view into a vacant entry in an `IntervalMap`. It is part of the [Entry](enum.Entry.html) enum.
 pub struct VacantEntry<'a, T, V, Ix: IndexType = DefaultIx> {
@@ -16,29 +13,43 @@ pub struct VacantEntry<'a, T, V, Ix: IndexType = DefaultIx> {
 }
 
 impl<'a, T, V, Ix: IndexType> VacantEntry<'a, T, V, Ix>
-where T: Copy,
+where
+    T: Copy,
 {
-    pub(super) fn new(tree: &'a mut IntervalMap<T, V, Ix>, parent: Ix, left_side: bool, interval: Interval<T>) -> Self {
-        Self { tree, parent, left_side, interval }
+    pub(super) fn new(
+        tree: &'a mut IntervalMap<T, V, Ix>,
+        parent: Ix,
+        left_side: bool,
+        interval: Interval<T>,
+    ) -> Self {
+        Self {
+            tree,
+            parent,
+            left_side,
+            interval,
+        }
     }
 
     /// Returns the interval that was used for the search.
-    pub fn interval(&self) -> Range<T> {
+    pub fn interval(&self) -> RangeInclusive<T> {
         self.interval.to_range()
     }
 }
 
 impl<'a, T, V, Ix: IndexType> VacantEntry<'a, T, V, Ix>
-where T: Copy + PartialOrd,
+where
+    T: Copy + PartialOrd,
 {
     /// Inserts a new value in the IntervalMap, and returns a mutable reference to it.
     pub fn insert(self, value: V) -> &'a mut V {
-        self.tree.insert_at(self.parent, self.left_side, self.interval, value)
+        self.tree
+            .insert_at(self.parent, self.left_side, self.interval, value)
     }
 }
 
 impl<'a, T, V, Ix: IndexType> fmt::Debug for VacantEntry<'a, T, V, Ix>
-where T: PartialOrd + Copy + fmt::Debug,
+where
+    T: PartialOrd + Copy + fmt::Debug,
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "VacantEntry({:?})", self.interval.to_range())
@@ -52,14 +63,15 @@ pub struct OccupiedEntry<'a, T, V, Ix: IndexType = DefaultIx> {
 }
 
 impl<'a, T, V, Ix: IndexType> OccupiedEntry<'a, T, V, Ix>
-where T: Copy,
+where
+    T: Copy,
 {
     pub(super) fn new(tree: &'a mut IntervalMap<T, V, Ix>, index: Ix) -> Self {
         Self { tree, index }
     }
 
     /// Returns the interval that was used for the search.
-    pub fn interval(&self) -> Range<T> {
+    pub fn interval(&self) -> RangeInclusive<T> {
         self.tree.nodes[self.index.get()].interval.to_range()
     }
 
@@ -88,17 +100,24 @@ where T: Copy,
 }
 
 impl<'a, T, V, Ix: IndexType> fmt::Debug for OccupiedEntry<'a, T, V, Ix>
-where T: PartialOrd + Copy + fmt::Debug,
-      V: fmt::Debug,
+where
+    T: PartialOrd + Copy + fmt::Debug,
+    V: fmt::Debug,
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let node = &self.tree.nodes[self.index.get()];
-        write!(f, "OccupiedEntry({:?} => {:?})", node.interval.to_range(), node.value)
+        write!(
+            f,
+            "OccupiedEntry({:?} => {:?})",
+            node.interval.to_range(),
+            node.value
+        )
     }
 }
 
 impl<'a, T, V, Ix: IndexType> OccupiedEntry<'a, T, V, Ix>
-where T: Copy + PartialOrd,
+where
+    T: Copy + PartialOrd,
 {
     /// Removes the entry from the map, and returns the removed value.
     pub fn remove(self) -> V {
@@ -110,14 +129,15 @@ where T: Copy + PartialOrd,
 /// This enum is constructed from the [entry](../struct.IntervalMap.html#method.entry).
 pub enum Entry<'a, T, V, Ix: IndexType = DefaultIx> {
     Vacant(VacantEntry<'a, T, V, Ix>),
-    Occupied(OccupiedEntry<'a, T, V, Ix>)
+    Occupied(OccupiedEntry<'a, T, V, Ix>),
 }
 
 impl<'a, T, V, Ix: IndexType> Entry<'a, T, V, Ix>
-where T: Copy,
+where
+    T: Copy,
 {
     /// Returns the interval that was used for the search.
-    pub fn interval(&self) -> Range<T> {
+    pub fn interval(&self) -> RangeInclusive<T> {
         match self {
             Entry::Occupied(entry) => entry.interval(),
             Entry::Vacant(entry) => entry.interval(),
@@ -126,7 +146,8 @@ where T: Copy,
 }
 
 impl<'a, T, V, Ix: IndexType> Entry<'a, T, V, Ix>
-where T: Copy + PartialOrd,
+where
+    T: Copy + PartialOrd,
 {
     /// If value is missing, initializes it with the `default` value.
     /// In any case, returns a mutable reference to the value.
@@ -149,7 +170,8 @@ where T: Copy + PartialOrd,
     /// If value is missing, initializes it with a `default(interval)`.
     /// In any case, returns a mutable reference to the value.
     pub fn or_insert_with_interval<F>(self, default: F) -> &'a mut V
-    where F: FnOnce(Range<T>) -> V,
+    where
+        F: FnOnce(RangeInclusive<T>) -> V,
     {
         match self {
             Entry::Occupied(entry) => entry.into_mut(),
@@ -163,7 +185,8 @@ where T: Copy + PartialOrd,
     /// If the entry is occupied, modifies the value with `f` function, and returns a new entry.
     /// Does nothing if the value was vacant.
     pub fn and_modify<F>(self, f: F) -> Self
-    where F: FnOnce(&mut V),
+    where
+        F: FnOnce(&mut V),
     {
         match self {
             Entry::Occupied(mut entry) => {
@@ -176,8 +199,9 @@ where T: Copy + PartialOrd,
 }
 
 impl<'a, T, V, Ix: IndexType> Entry<'a, T, V, Ix>
-where T: Copy + PartialOrd,
-      V: Default,
+where
+    T: Copy + PartialOrd,
+    V: Default,
 {
     /// If value is missing, initializes it with `V::default()`.
     /// In any case, returns a mutable reference to the value.
@@ -190,8 +214,9 @@ where T: Copy + PartialOrd,
 }
 
 impl<'a, T, V, Ix: IndexType> fmt::Debug for Entry<'a, T, V, Ix>
-where T: PartialOrd + Copy + fmt::Debug,
-      V: fmt::Debug,
+where
+    T: PartialOrd + Copy + fmt::Debug,
+    V: fmt::Debug,
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {

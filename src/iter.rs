@@ -1,9 +1,11 @@
 //! Module with various iterators over `IntervalMap` and `IntervalSet`.
 
 use alloc::vec::Vec;
-use core::ops::{Range, RangeBounds, Bound};
-use core::iter::FusedIterator;
-use core::mem;
+use core::{
+    mem,
+    ops::{Range, RangeBounds, Bound},
+    iter::FusedIterator,
+};
 
 use super::{Interval, IntervalMap, Node, IndexType, check_ordered, BitVec};
 

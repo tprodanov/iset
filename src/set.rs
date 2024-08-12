@@ -10,9 +10,11 @@ use std::io::{self, Write};
 #[cfg(feature = "serde")]
 use serde::{Serialize, Serializer, Deserialize, Deserializer};
 
-use super::IntervalMap;
-use super::ix::{IndexType, DefaultIx};
-use super::iter::*;
+use super::{
+    IntervalMap,
+    ix::{IndexType, DefaultIx},
+    iter::*,
+};
 
 /// Set with interval keys (ranges `x..y`). Newtype over `IntervalMap<T, ()>`.
 /// See [IntervalMap](../struct.IntervalMap.html) for more information.

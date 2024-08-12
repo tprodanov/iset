@@ -43,9 +43,11 @@ use std::io::{self, Write};
 #[cfg(feature = "serde")]
 use {
     core::marker::PhantomData,
-    serde::{Serialize, Serializer, Deserialize, Deserializer},
-    serde::ser::{SerializeTuple, SerializeSeq},
-    serde::de::{Visitor, SeqAccess},
+    serde::{
+        Serialize, Serializer, Deserialize, Deserializer,
+        ser::{SerializeTuple, SerializeSeq},
+        de::{Visitor, SeqAccess},
+    },
 };
 
 use ix::IndexType;

@@ -67,6 +67,7 @@ fn validate<T: PartialOrd + Copy, V, Ix: IndexType>(tree: &IntervalMap<T, V, Ix>
         assert!(tree.nodes.is_empty(), "Non empty nodes with an empty root");
         return;
     }
+    assert!(tree.is_black(tree.root), "Tree root needs to be black");
     for i in 0..tree.nodes.len() {
         if i == tree.root.get() {
             assert!(!tree.nodes[i].parent.defined(), "Root {} has a parent {}", i, tree.nodes[i].parent);
@@ -486,7 +487,7 @@ fn test_float_inserts() {
 #[test]
 fn test_from_sorted() {
     const COUNT: u32 = 1000;
-    let mut map: IntervalMap<_, _, u32> = IntervalMap::from_sorted(std::iter::empty());
+    let mut map: IntervalMap<u32, u32, u32> = IntervalMap::from_sorted([]);
     validate(&map, 0);
 
     let mut vec = Vec::new();

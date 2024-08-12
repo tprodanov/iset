@@ -341,7 +341,7 @@ fn check_ordered<T: PartialOrd, R: RangeBounds<T>>(range: &R) {
 /// Number of elements in the interval map cannot exceed `IndexType::MAX - 1`: for example a map with `u8` indices
 /// can store up to 255 items.
 ///
-/// Using smaller index types saves memory and may reduce running time.
+/// Using smaller index types saves memory and may slightly reduce running time.
 ///
 /// # Interval map creation
 ///
@@ -353,7 +353,7 @@ fn check_ordered<T: PartialOrd, R: RangeBounds<T>>(range: &R) {
 /// let mut map = IntervalMap::new();
 /// map.insert(10..20, 'a');
 ///
-/// // Creates an empty interval map and specifies index type (u16 here):
+/// // To create an interval map with custom index type (u16 here), use default():
 /// let mut map = IntervalMap::<_, _, u16>::default();
 /// map.insert(10..20, 'a');
 ///
@@ -484,14 +484,15 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
             colors: BitVec::from_elem(n, false), // Start with all black nodes.
             root: Ix::MAX,
         };
-        for i in 1..n {
-            assert!(map.nodes[i - 1].interval < map.nodes[i].interval,
+        for (i, consec_nodes) in map.nodes.windows(2).enumerate() {
+            assert!(consec_nodes[0].interval < consec_nodes[1].interval,
                 "Cannot construct interval map from sorted nodes: intervals at positions {} and {} are unordered!",
                 i, i + 1);
         }
         if n > 0 {
             let max_depth = (usize::BITS - n.leading_zeros()) as u16;
             map.root = map.init_from_sorted(0, n, max_depth);
+            map.set_black(map.root);
         }
         map
     }
@@ -646,6 +647,7 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
             // parent is red
             // grandparent should be defined
             let grandparent = self.nodes[parent.get()].parent;
+            debug_assert!(grandparent.defined(), "Red parent and grandparent does not exist");
             let uncle = self.sibling(parent);
 
             if uncle.defined() && self.is_red(uncle) {
@@ -1341,8 +1343,8 @@ impl<T: PartialOrd + Copy + Display, V: Display, Ix: IndexType> IntervalMap<T, V
     /// Writes dot file to `writer`. `T` and `V` should implement `Display`.
     pub fn write_dot(&self, mut writer: impl Write) -> io::Result<()> {
         writeln!(writer, "digraph {{")?;
-        for i in 0..self.nodes.len() {
-            self.nodes[i].write_dot(i, self.colors.get(i), &mut writer)?;
+        for (i, node) in self.nodes.iter().enumerate() {
+            node.write_dot(i, self.colors.get(i), &mut writer)?;
         }
         writeln!(writer, "}}")
     }
@@ -1353,8 +1355,8 @@ impl<T: PartialOrd + Copy + Display, V, Ix: IndexType> IntervalMap<T, V, Ix> {
     /// Writes dot file to `writer` without values. `T` should implement `Display`.
     pub fn write_dot_without_values(&self, mut writer: impl Write) -> io::Result<()> {
         writeln!(writer, "digraph {{")?;
-        for i in 0..self.nodes.len() {
-            self.nodes[i].write_dot_without_values(i, self.colors.get(i), &mut writer)?;
+        for (i, node) in self.nodes.iter().enumerate() {
+            node.write_dot_without_values(i, self.colors.get(i), &mut writer)?;
         }
         writeln!(writer, "}}")
     }

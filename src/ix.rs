@@ -1,33 +1,7 @@
 //! Wrapper around integer types, used as indices within `IntervalMap` and `IntervalSet`.
 
 use core::fmt::Display;
-
-/// Trait for index types: used in the inner representation of [IntervalMap](../struct.IntervalMap.html) and
-/// [IntervalSet](../set/struct.IntervalSet.html).
-///
-/// Implemented for `u8`, `u16`, `u32` and `u64`,
-/// `u32` is used by default ([DefaultIx](type.DefaultIx.html)).
-///
-/// `IntervalMap` or `IntervalSet` can store up to `Ix::MAX - 1` elements
-/// (for example `IntervalMap<_, _, u8>` can store up to 255 items).
-///
-/// Using smaller index types saves memory and slightly reduces running time.
-pub trait IndexType: Copy + Display + Sized + Eq + Ord {
-    /// Undefined index. There can be no indices higher than MAX.
-    const MAX: Self;
-
-    /// Converts index into `usize`.
-    fn get(self) -> usize;
-
-    /// Creates a new index. Returns error if the `elemen_num` is too big.
-    fn new(element_num: usize) -> Result<Self, &'static str>;
-
-    /// Returns `true` if the index is defined.
-    #[inline(always)]
-    fn defined(self) -> bool {
-        self != Self::MAX
-    }
-}
+use core::num::{NonZeroU8, NonZeroU16, NonZeroU32, NonZeroU64, NonZeroUsize};
 
 macro_rules! index_error {
     (u64) => {
@@ -41,32 +15,51 @@ macro_rules! index_error {
     };
 }
 
-macro_rules! impl_index {
-    ($type:ident) => {
-        impl IndexType for $type {
-            const MAX: Self = core::$type::MAX;
+/// Default index type.
+pub type DefaultIx = u32;
 
-            #[inline(always)]
-            fn get(self) -> usize {
-                self as usize
+/// Trait for index types: used in the inner representation of [IntervalMap](../struct.IntervalMap.html) and
+/// [IntervalSet](../set/struct.IntervalSet.html).
+///
+/// Implemented for `u8`, `u16`, `u32`, `u64` and `usize`,
+/// `u32` is used by default ([DefaultIx](type.DefaultIx.html)).
+///
+/// `IntervalMap` or `IntervalSet` can store up to `Ix::MAX - 1` elements
+/// (for example `IntervalMap<_, _, u8>` can store up to 255 items).
+///
+/// Using smaller index types saves memory and slightly reduces running time.
+pub trait IndexType: Copy + Display + Sized + Eq {
+    type T: Copy + Display + Sized + Eq;
+
+    fn new(val: usize) -> Self::T;
+
+    fn get(val: Self::T) -> usize;
+}
+
+macro_rules! impl_index {
+    ($primitive:ident, $nonzero:ident) => {
+        impl IndexType for $primitive {
+            type T = $nonzero;
+
+            /// Creates a new index. Panics if `val` is too big.
+            fn new(val: usize) -> Self::T {
+                val.try_into().ok()
+                    .and_then(|v: $primitive| Self::T::new(v ^ $primitive::MAX))
+                    .expect(index_error!($primitive))
             }
 
-            #[inline]
-            fn new(element_num: usize) -> Result<Self, &'static str> {
-                let element_num = element_num as $type;
-                if element_num == core::$type::MAX {
-                    Err(index_error!($type))
-                } else {
-                    Ok(element_num as $type)
-                }
+            /// Converts index into `usize`.
+            fn get(val: Self::T) -> usize {
+                (val.get() ^ $primitive::MAX)
+                    .try_into()
+                    .expect(concat!("usize is too small for ", stringify!($primitive), " type."))
             }
         }
     };
 }
 
-impl_index!(u8);
-impl_index!(u16);
-impl_index!(u32);
-impl_index!(u64);
-/// Default index type.
-pub type DefaultIx = u32;
+impl_index!(u8, NonZeroU8);
+impl_index!(u16, NonZeroU16);
+impl_index!(u32, NonZeroU32);
+impl_index!(u64, NonZeroU64);
+impl_index!(usize, NonZeroUsize);

@@ -175,8 +175,7 @@ impl<T: PartialOrd + Copy, Ix: IndexType> IntervalSet<T, Ix> {
     /// Checks, if the query overlaps any intervals in the interval set.
     /// Equivalent to `set.iter(query).next().is_some()`, but much faster.
     #[inline]
-    pub fn has_overlap<R>(&self, query: R) -> bool
-    where R: RangeBounds<T>, {
+    pub fn has_overlap(&self, query: impl RangeBounds<T>) -> bool {
         self.inner.has_overlap(query)
     }
 
@@ -185,7 +184,7 @@ impl<T: PartialOrd + Copy, Ix: IndexType> IntervalSet<T, Ix> {
     /// Output is sorted by intervals.
     ///
     /// Panics if `interval` is empty or contains a value that cannot be compared (such as `NAN`).
-    pub fn iter<'a, R>(&'a self, query: R) -> Intervals<'a, T, (), R, Ix>
+    pub fn iter<R>(&self, query: R) -> Intervals<'_, T, (), R, Ix>
     where R: RangeBounds<T>,
     {
         self.inner.intervals(query)
@@ -193,7 +192,7 @@ impl<T: PartialOrd + Copy, Ix: IndexType> IntervalSet<T, Ix> {
 
     /// Iterates over intervals `x..y` that overlap the `point`. Same as `iter(point..=point)`.
     /// See [iter](#method.iter) for more details.
-    pub fn overlap<'a>(&'a self, point: T) -> Intervals<'a, T, (), RangeInclusive<T>, Ix> {
+    pub fn overlap(&self, point: T) -> Intervals<'_, T, (), RangeInclusive<T>, Ix> {
         self.inner.intervals(point..=point)
     }
 
@@ -207,7 +206,7 @@ impl<T: PartialOrd + Copy, Ix: IndexType> IntervalSet<T, Ix> {
 
     /// Creates an unsorted iterator over all intervals `x..y`.
     /// Slightly faster than the sorted iterator, although both take *O(N)*.
-    pub fn unsorted_iter<'a>(&'a self) -> UnsIntervals<'a, T, (), Ix> {
+    pub fn unsorted_iter(&self) -> UnsIntervals<'_, T, (), Ix> {
         UnsIntervals::new(&self.inner)
     }
 
@@ -246,9 +245,7 @@ where T: PartialOrd + Copy + Default + AddAssign + Sub<Output = T>,
     ///
     /// See [IntervalMap::covered_len](../struct.IntervalMap.html#method.covered_len) for more details.
     #[inline]
-    pub fn covered_len<R>(&self, query: R) -> T
-    where R: RangeBounds<T>
-    {
+    pub fn covered_len(&self, query: impl RangeBounds<T>) -> T {
         self.inner.covered_len(query)
     }
 }
@@ -256,7 +253,7 @@ where T: PartialOrd + Copy + Default + AddAssign + Sub<Output = T>,
 #[cfg(feature = "dot")]
 impl<T: PartialOrd + Copy + core::fmt::Display, Ix: IndexType> IntervalSet<T, Ix> {
     /// Writes dot file to `writer`. `T` should implement `Display`.
-    pub fn write_dot<W: Write>(&self, writer: W) -> io::Result<()> {
+    pub fn write_dot(&self, writer: impl Write) -> io::Result<()> {
         self.inner.write_dot_without_values(writer)
     }
 }

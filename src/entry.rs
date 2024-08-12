@@ -139,7 +139,9 @@ where T: Copy + PartialOrd,
 
     /// If value is missing, initializes it with a `default()` function call.
     /// In any case, returns a mutable reference to the value.
-    pub fn or_insert_with<F: FnOnce() -> V>(self, default: F) -> &'a mut V {
+    pub fn or_insert_with<F>(self, default: F) -> &'a mut V
+    where F: FnOnce() -> V,
+    {
         match self {
             Entry::Occupied(entry) => entry.into_mut(),
             Entry::Vacant(entry) => entry.insert(default()),

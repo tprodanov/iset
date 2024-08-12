@@ -71,7 +71,7 @@ impl<T: PartialOrd + Copy> Interval<T> {
         }
     }
 
-    fn intersects_range<R: RangeBounds<T>>(&self, range: &R) -> bool {
+    fn intersects_range(&self, range: &impl RangeBounds<T>) -> bool {
         // Each match returns bool
         (match range.end_bound() {
             Bound::Included(&value) => self.start <= value,
@@ -183,7 +183,7 @@ impl<T, V, Ix: IndexType> Node<T, V, Ix> {
 
 #[cfg(feature = "dot")]
 impl<T: Display, V: Display, Ix: IndexType> Node<T, V, Ix> {
-    fn write_dot<W: Write>(&self, index: usize, is_red: bool, mut writer: W) -> io::Result<()> {
+    fn write_dot(&self, index: usize, is_red: bool, mut writer: impl Write) -> io::Result<()> {
         writeln!(writer, "    {} [label=\"i={}\\n{}: {}\\nsubtree: {}\", fillcolor={}, style=filled]",
             index, index, self.interval, self.value, self.subtree_interval, if is_red { "salmon" } else { "grey65" })?;
         if self.left.defined() {
@@ -198,7 +198,7 @@ impl<T: Display, V: Display, Ix: IndexType> Node<T, V, Ix> {
 
 #[cfg(feature = "dot")]
 impl<T: Display, V, Ix: IndexType> Node<T, V, Ix> {
-    fn write_dot_without_values<W: Write>(&self, index: usize, is_red: bool, mut writer: W) -> io::Result<()> {
+    fn write_dot_without_values(&self, index: usize, is_red: bool, mut writer: impl Write) -> io::Result<()> {
         writeln!(writer, "    {} [label=\"i={}: {}\\nsubtree: {}\", fillcolor={}, style=filled]",
             index, index, self.interval, self.subtree_interval, if is_red { "salmon" } else { "grey65" })?;
         if self.left.defined() {
@@ -747,7 +747,7 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
     /// assert_eq!(counts[3..9], 1);
     /// assert_eq!(counts[2..6], 3);
     /// ```
-    pub fn entry<'a>(&'a mut self, interval: Range<T>) -> Entry<'a, T, V, Ix> {
+    pub fn entry(&mut self, interval: Range<T>) -> Entry<'_, T, V, Ix> {
         let interval = Interval::new(&interval);
         let mut current = self.root;
         if !current.defined() {
@@ -1012,9 +1012,7 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
     /// assert!(!map.has_overlap(8..10));
     /// assert!(map.has_overlap(8..=10));
     /// ```
-    pub fn has_overlap<R>(&self, query: R) -> bool
-    where R: RangeBounds<T>,
-    {
+    pub fn has_overlap(&self, query: impl RangeBounds<T>) -> bool {
         check_ordered(&query);
         if !self.root.defined() {
             return false;
@@ -1094,7 +1092,7 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
     /// Output is sorted by intervals, but not by values.
     ///
     /// Panics if `interval` is empty or contains a value that cannot be compared (such as `NAN`).
-    pub fn iter<'a, R>(&'a self, query: R) -> Iter<'a, T, V, R, Ix>
+    pub fn iter<R>(&self, query: R) -> Iter<'_, T, V, R, Ix>
     where R: RangeBounds<T>,
     {
         Iter::new(self, query)
@@ -1102,7 +1100,7 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
 
     /// Iterates over intervals `x..y` that overlap the `query`.
     /// See [iter](#method.iter) for more details.
-    pub fn intervals<'a, R>(&'a self, query: R) -> Intervals<'a, T, V, R, Ix>
+    pub fn intervals<R>(&self, query: R) -> Intervals<'_, T, V, R, Ix>
     where R: RangeBounds<T>,
     {
         Intervals::new(self, query)
@@ -1110,7 +1108,7 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
 
     /// Iterates over values that overlap the `query`.
     /// See [iter](#method.iter) for more details.
-    pub fn values<'a, R>(&'a self, query: R) -> Values<'a, T, V, R, Ix>
+    pub fn values<R>(&self, query: R) -> Values<'_, T, V, R, Ix>
     where R: RangeBounds<T>,
     {
         Values::new(self, query)
@@ -1118,7 +1116,7 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
 
     /// Iterator over pairs `(x..y, &mut value)` that overlap the `query`.
     /// See [iter](#method.iter) for more details.
-    pub fn iter_mut<'a, R>(&'a mut self, query: R) -> IterMut<'a, T, V, R, Ix>
+    pub fn iter_mut<R>(&mut self, query: R) -> IterMut<'_, T, V, R, Ix>
     where R: RangeBounds<T>,
     {
         IterMut::new(self, query)
@@ -1126,7 +1124,7 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
 
     /// Iterator over *mutable* values that overlap the `query`.
     /// See [iter](#method.iter) for more details.
-    pub fn values_mut<'a, R>(&'a mut self, query: R) -> ValuesMut<'a, T, V, R, Ix>
+    pub fn values_mut<R>(&mut self, query: R) -> ValuesMut<'_, T, V, R, Ix>
     where R: RangeBounds<T>,
     {
         ValuesMut::new(self, query)
@@ -1162,72 +1160,72 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
     /// Iterates over pairs `(x..y, &value)` that overlap the `point`.
     /// See [iter](#method.iter) for more details.
     #[inline]
-    pub fn overlap<'a>(&'a self, point: T) -> Iter<'a, T, V, RangeInclusive<T>, Ix> {
+    pub fn overlap(&self, point: T) -> Iter<'_, T, V, RangeInclusive<T>, Ix> {
         Iter::new(self, point..=point)
     }
 
     /// Iterates over intervals `x..y` that overlap the `point`.
     /// See [iter](#method.iter) for more details.
     #[inline]
-    pub fn intervals_overlap<'a>(&'a self, point: T) -> Intervals<'a, T, V, RangeInclusive<T>, Ix> {
+    pub fn intervals_overlap(&self, point: T) -> Intervals<'_, T, V, RangeInclusive<T>, Ix> {
         Intervals::new(self, point..=point)
     }
 
     /// Iterates over values that overlap the `point`.
     /// See [iter](#method.iter) for more details.
     #[inline]
-    pub fn values_overlap<'a>(&'a self, point: T) -> Values<'a, T, V, RangeInclusive<T>, Ix> {
+    pub fn values_overlap(&self, point: T) -> Values<'_, T, V, RangeInclusive<T>, Ix> {
         Values::new(self, point..=point)
     }
 
     /// Iterator over pairs `(x..y, &mut value)` that overlap the `point`.
     /// See [iter](#method.iter) for more details.
     #[inline]
-    pub fn overlap_mut<'a>(&'a mut self, point: T) -> IterMut<'a, T, V, RangeInclusive<T>, Ix> {
+    pub fn overlap_mut(&mut self, point: T) -> IterMut<'_, T, V, RangeInclusive<T>, Ix> {
         IterMut::new(self, point..=point)
     }
 
     /// Iterates over *mutable* values that overlap the `point`.
     /// See [iter](#method.iter) for more details.
     #[inline]
-    pub fn values_overlap_mut<'a>(&'a mut self, point: T) -> ValuesMut<'a, T, V, RangeInclusive<T>, Ix> {
+    pub fn values_overlap_mut(&mut self, point: T) -> ValuesMut<'_, T, V, RangeInclusive<T>, Ix> {
         ValuesMut::new(self, point..=point)
     }
 
     /// Iterates over all values (`&V`) with intervals that match `query` exactly.
     /// Takes *O(log N + K)* where *K* is the size of the output.
-    pub fn values_at<'a>(&'a self, query: Range<T>) -> ValuesExact<'a, T, V, Ix> {
+    pub fn values_at(&self, query: Range<T>) -> ValuesExact<'_, T, V, Ix> {
         ValuesExact::new(self, Interval::new(&query))
     }
 
     /// Iterates over all mutable values (`&mut V`) with intervals that match `query` exactly.
-    pub fn values_mut_at<'a>(&'a mut self, query: Range<T>) -> ValuesExactMut<'a, T, V, Ix> {
+    pub fn values_mut_at(&mut self, query: Range<T>) -> ValuesExactMut<'_, T, V, Ix> {
         ValuesExactMut::new(self, Interval::new(&query))
     }
 
     /// Creates an unsorted iterator over all pairs `(x..y, &value)`.
     /// Slightly faster than the sorted iterator, although both take *O(N)*.
-    pub fn unsorted_iter<'a>(&'a self) -> UnsIter<'a, T, V, Ix> {
+    pub fn unsorted_iter(&self) -> UnsIter<'_, T, V, Ix> {
         UnsIter::new(self)
     }
 
     /// Creates an unsorted iterator over all intervals `x..y`.
-    pub fn unsorted_intervals<'a>(&'a self) -> UnsIntervals<'a, T, V, Ix> {
+    pub fn unsorted_intervals(&self) -> UnsIntervals<'_, T, V, Ix> {
         UnsIntervals::new(self)
     }
 
     /// Creates an unsorted iterator over all values `&value`.
-    pub fn unsorted_values<'a>(&'a self) -> UnsValues<'a, T, V, Ix> {
+    pub fn unsorted_values(&self) -> UnsValues<'_, T, V, Ix> {
         UnsValues::new(self)
     }
 
     /// Creates an unsorted iterator over all pairs `(x..y, &mut value)`.
-    pub fn unsorted_iter_mut<'a>(&'a mut self) -> UnsIterMut<'a, T, V, Ix> {
+    pub fn unsorted_iter_mut(&mut self) -> UnsIterMut<'_, T, V, Ix> {
         UnsIterMut::new(self)
     }
 
     /// Creates an unsorted iterator over all mutable values `&mut value`.
-    pub fn unsorted_values_mut<'a>(&'a mut self) -> UnsValuesMut<'a, T, V, Ix> {
+    pub fn unsorted_values_mut(&mut self) -> UnsValuesMut<'_, T, V, Ix> {
         UnsValuesMut::new(self)
     }
 
@@ -1296,9 +1294,7 @@ where T: PartialOrd + Copy + Default + AddAssign + Sub<Output = T>,
     /// assert_eq!(map.covered_len(2..14), 10);
     /// assert_eq!(map.covered_len(..), 13);
     /// ```
-    pub fn covered_len<R>(&self, query: R) -> T
-    where R: RangeBounds<T>,
-    {
+    pub fn covered_len(&self, query: impl RangeBounds<T>) -> T {
         let mut res = T::default();
         let start_bound = query.start_bound().cloned();
         let end_bound = query.end_bound().cloned();
@@ -1341,7 +1337,7 @@ where T: PartialOrd + Copy + Default + AddAssign + Sub<Output = T>,
 #[cfg(feature = "dot")]
 impl<T: PartialOrd + Copy + Display, V: Display, Ix: IndexType> IntervalMap<T, V, Ix> {
     /// Writes dot file to `writer`. `T` and `V` should implement `Display`.
-    pub fn write_dot<W: Write>(&self, mut writer: W) -> io::Result<()> {
+    pub fn write_dot(&self, mut writer: impl Write) -> io::Result<()> {
         writeln!(writer, "digraph {{")?;
         for i in 0..self.nodes.len() {
             self.nodes[i].write_dot(i, self.colors.get(i), &mut writer)?;
@@ -1353,7 +1349,7 @@ impl<T: PartialOrd + Copy + Display, V: Display, Ix: IndexType> IntervalMap<T, V
 #[cfg(feature = "dot")]
 impl<T: PartialOrd + Copy + Display, V, Ix: IndexType> IntervalMap<T, V, Ix> {
     /// Writes dot file to `writer` without values. `T` should implement `Display`.
-    pub fn write_dot_without_values<W: Write>(&self, mut writer: W) -> io::Result<()> {
+    pub fn write_dot_without_values(&self, mut writer: impl Write) -> io::Result<()> {
         writeln!(writer, "digraph {{")?;
         for i in 0..self.nodes.len() {
             self.nodes[i].write_dot_without_values(i, self.colors.get(i), &mut writer)?;

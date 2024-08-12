@@ -492,7 +492,7 @@ fn test_from_sorted() {
     let mut vec = Vec::new();
     for i in 0..COUNT {
         vec.push((i..i+1, i));
-        map = IntervalMap::from_sorted(vec.clone().into_iter());
+        map = IntervalMap::from_sorted(vec.clone());
         validate(&map, vec.len());
     }
     for (range, value) in vec {

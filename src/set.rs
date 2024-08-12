@@ -88,11 +88,9 @@ impl<T: PartialOrd + Copy, Ix: IndexType> IntervalSet<T, Ix> {
     /// Creates an interval set from a sorted iterator over intervals. Takes *O(N)*.
     ///
     /// Panics if the intervals are not sorted or if there are equal intervals.
-    pub fn from_sorted<I>(iter: I) -> Self
-    where I: Iterator<Item = Range<T>>,
-    {
+    pub fn from_sorted(iter: impl IntoIterator<Item = Range<T>>) -> Self {
         Self {
-            inner: IntervalMap::from_sorted(iter.map(|range| (range, ()))),
+            inner: IntervalMap::from_sorted(iter.into_iter().map(|range| (range, ()))),
         }
     }
 

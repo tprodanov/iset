@@ -366,7 +366,7 @@ fn check_ordered<T: PartialOrd, R: RangeBounds<T>>(range: &R) {
 ///
 /// // Creates an interval map from a sorted iterator, takes O(N):
 /// let vec = vec![(0..10, 'b'), (5..15, 'a')];
-/// let map = IntervalMap::<_, _, u32>::from_sorted(vec.into_iter());
+/// let map = IntervalMap::<_, _, u32>::from_sorted(vec);
 ///
 /// // Alternatively, you can use `.collect()` method that creates an interval map
 /// // with the default index size. `Collect` does not require sorted intervals,
@@ -474,10 +474,8 @@ impl<T: PartialOrd + Copy, V, Ix: IndexType> IntervalMap<T, V, Ix> {
     /// Creates an interval map from a sorted iterator over pairs `(range, value)`. Takes *O(N)*.
     ///
     /// Panics if the intervals are not sorted or if there are equal intervals.
-    pub fn from_sorted<I>(iter: I) -> Self
-    where I: Iterator<Item = (Range<T>, V)>,
-    {
-        let nodes: Vec<_> = iter.map(|(range, value)| Node::new(Interval::new(&range), value)).collect();
+    pub fn from_sorted(iter: impl IntoIterator<Item = (Range<T>, V)>) -> Self {
+        let nodes: Vec<_> = iter.into_iter().map(|(range, value)| Node::new(Interval::new(&range), value)).collect();
         let n = nodes.len();
         let mut map = Self {
             nodes,

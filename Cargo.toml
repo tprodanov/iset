@@ -1,6 +1,6 @@
 [package]
 name = "iset"
-version = "0.3.0"
+version = "0.3.1"
 authors = ["Timofey Prodanov <timofey.prodanov@gmail.com>"]
 edition = "2021"
 description = "Map and set with interval keys (x..y)."

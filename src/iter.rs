@@ -2,7 +2,7 @@
 
 use alloc::vec::Vec;
 use core::{
-    mem,
+    mem::{self, MaybeUninit},
     ops::{Range, RangeBounds, Bound},
     iter::FusedIterator,
 };
@@ -224,6 +224,23 @@ iterator! {
     node -> unsafe { &mut *(&mut node.value as *mut V) }, { mut }
 }
 
+/// This function transmutes values into `MaybeUninit`.
+fn cast_nodes<T, V, Ix>(v: Vec<Node<T, V, Ix>>) -> Vec<Node<T, MaybeUninit<V>, Ix>>
+where T: PartialOrd + Copy,
+      Ix: IndexType,
+{
+    let mut v = mem::ManuallyDrop::new(v);
+    let p = v.as_mut_ptr();
+    let len = v.len();
+    let cap = v.capacity();
+    unsafe {
+        // First, cast pointer.
+        let p2 = p as *mut Node<T, MaybeUninit<V>, Ix>;
+        // Then, rebuild vector from new pointer.
+        Vec::from_raw_parts(p2, len, cap)
+    }
+}
+
 /// Macro that generates IntoIterator over IntervalMap.
 macro_rules! into_iterator {
     (
@@ -239,7 +256,7 @@ macro_rules! into_iterator {
         {
             index: Ix,
             range: R,
-            nodes: Vec<Node<T, V, Ix>>,
+            nodes: Vec<Node<T, MaybeUninit<V>, Ix>>,
             stack: ActionStack,
         }
 
@@ -249,7 +266,7 @@ macro_rules! into_iterator {
                 Self {
                     index: tree.root,
                     range,
-                    nodes: tree.nodes,
+                    nodes: cast_nodes(tree.nodes),
                     stack: ActionStack::new(),
                 }
             }
@@ -282,7 +299,9 @@ into_iterator! {
     #[doc="Iterator over pairs `(x..y, value)`. Takes ownership of the interval map/set."]
     #[derive(Debug)]
     struct IntoIter -> (Range<T>, V),
-    node -> (node.interval.to_range(), mem::replace(&mut node.value, unsafe { mem::zeroed() }))
+    node -> (
+        node.interval.to_range(),
+        unsafe { mem::replace(&mut node.value, MaybeUninit::uninit()).assume_init() })
 }
 
 into_iterator! {
@@ -296,7 +315,7 @@ into_iterator! {
     #[doc="Iterator over values. Takes ownership of the interval map/set."]
     #[derive(Debug)]
     struct IntoValues -> V,
-    node -> mem::replace(&mut node.value, unsafe { mem::zeroed() })
+    node -> unsafe { mem::replace(&mut node.value, MaybeUninit::uninit()).assume_init() }
 }
 
 /// Macro that generates unsorted iterator over IntervalMap.

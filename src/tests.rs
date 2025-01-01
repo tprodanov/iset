@@ -1,3 +1,5 @@
+// NOTE: Run tests with `cargo test --features std,dot,serde`.
+
 use std::{
     println,
     string::String,

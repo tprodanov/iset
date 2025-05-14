@@ -9,6 +9,9 @@ on:
 env:
   CARGO_TERM_COLOR: always
 
+# Declare default permissions as read only.
+permissions: read-all
+
 jobs:
   build:
 

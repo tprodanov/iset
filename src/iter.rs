@@ -292,6 +292,13 @@ macro_rules! into_iterator {
         }
 
         impl<T: PartialOrd + Copy, V, R: RangeBounds<T>, Ix: IndexType> FusedIterator for $name<T, V, R, Ix> { }
+
+        impl<T: PartialOrd + Copy, V, R: RangeBounds<T>, Ix: IndexType> Drop for $name<T, V, R, Ix> {
+            fn drop(&mut self) {
+                // Finish the iterator so that we drop all values.
+                for _ in self {}
+            }
+        }
     };
 }
 

@@ -150,6 +150,7 @@ impl<'de, T: Deserialize<'de>> Deserialize<'de> for Interval<T> {
     }
 }
 
+// Needs repr(C) so that `Node<T, V, Ix>` has the same memory layout as `Node<T, MaybeUninit<V>, Ix>`.
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 #[repr(C)]

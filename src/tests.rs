@@ -129,12 +129,12 @@ impl<T: PartialOrd + Copy, V> NaiveIntervalMap<T, V> {
         self.nodes.push((range, value));
     }
 
-    fn iter<'a, R: 'a + RangeBounds<T>>(&'a self, query: R) -> impl Iterator<Item = (Range<T>, &V)> + 'a {
+    fn iter<'a, R: 'a + RangeBounds<T>>(&'a self, query: R) -> impl Iterator<Item = (Range<T>, &'a V)> + 'a {
         self.nodes.iter().filter(move |(range, _value)| intersects(range, &query))
             .map(|(range, value)| (range.clone(), value))
     }
 
-    fn all_matching<'a>(&'a self, query: Range<T>) -> impl Iterator<Item = &V> + 'a {
+    fn all_matching<'a>(&'a self, query: Range<T>) -> impl Iterator<Item = &'a V> + 'a {
         self.nodes.iter().filter(move |(range, _value)| range_eq(&range, &query)).map(|(_range, value)| value)
     }
 
@@ -248,24 +248,24 @@ where T: PartialOrd + Copy,
     res
 }
 
-fn generate_int(a: i32, b: i32) -> impl (FnMut() -> i32) {
+fn generate_int(a: i32, b: i32) -> impl FnMut() -> i32 {
     let mut rng = thread_rng();
     move || rng.gen_range(a..b)
 }
 
-fn generate_float(a: f64, b: f64) -> impl (FnMut() -> f64) {
+fn generate_float(a: f64, b: f64) -> impl FnMut() -> f64 {
     let mut rng = thread_rng();
     move || rng.gen_range(a..b)
 }
 
-fn generate_float_rounding() -> impl (FnMut() -> f64) {
+fn generate_float_rounding() -> impl FnMut() -> f64 {
     const MULT: f64 = 1e8;
     let mut rng = thread_rng();
     move || (rng.gen::<f64>() * MULT).round() / MULT
 }
 
 fn generate_range<T: PartialOrd + Copy + Debug, F: FnMut() -> T>(mut generator: F)
-        -> impl (FnMut() -> Range<T>) {
+        -> impl FnMut() -> Range<T> {
     move || {
         let (a, b) = generate_ordered_pair(&mut generator, true);
         a..b
@@ -273,7 +273,7 @@ fn generate_range<T: PartialOrd + Copy + Debug, F: FnMut() -> T>(mut generator: 
 }
 
 fn generate_range_from<T: PartialOrd + Copy + Debug, F: FnMut() -> T>(mut generator: F)
-        -> impl (FnMut() -> ops::RangeFrom<T>) {
+        -> impl FnMut() -> ops::RangeFrom<T> {
     move || generator()..
 }
 
@@ -282,7 +282,7 @@ fn generate_range_full() -> ops::RangeFull {
 }
 
 fn generate_range_incl<T: PartialOrd + Copy + Debug, F: FnMut() -> T>(mut generator: F)
-        -> impl (FnMut() -> ops::RangeInclusive<T>) {
+        -> impl FnMut() -> ops::RangeInclusive<T> {
     move || {
         let (a, b) = generate_ordered_pair(&mut generator, false);
         a..=b
@@ -290,12 +290,12 @@ fn generate_range_incl<T: PartialOrd + Copy + Debug, F: FnMut() -> T>(mut genera
 }
 
 fn generate_range_to<T: PartialOrd + Copy + Debug, F: FnMut() -> T>(mut generator: F)
-        -> impl (FnMut() -> ops::RangeTo<T>) {
+        -> impl FnMut() -> ops::RangeTo<T> {
     move || ..generator()
 }
 
 fn generate_range_to_incl<T: PartialOrd + Copy + Debug, F: FnMut() -> T>(mut generator: F)
-        -> impl (FnMut() -> ops::RangeToInclusive<T>) {
+        -> impl FnMut() -> ops::RangeToInclusive<T> {
     move || ..=generator()
 }
 

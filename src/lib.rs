@@ -152,6 +152,7 @@ impl<'de, T: Deserialize<'de>> Deserialize<'de> for Interval<T> {
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
+#[repr(C)]
 struct Node<T, V, Ix> {
     interval: Interval<T>,
     subtree_interval: Interval<T>,
